@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 
+// Global MenuItem schema with restaurantId reference
 const menuItemSchema = new mongoose.Schema({
   restaurantId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -31,7 +32,7 @@ const menuItemSchema = new mongoose.Schema({
   timestamps: true
 });
 
-module.exports = { 
+module.exports = {
   menuItemSchema,
   MenuItem: mongoose.model('MenuItem', menuItemSchema)
 };

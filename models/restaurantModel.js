@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
-const { menuItemSchema } = require('./menuItemModel');
 
 const restaurantSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true
+    required: true,
+    index: true // for fast name search
   },
   cuisines: {
     type: [String],
@@ -16,25 +16,36 @@ const restaurantSchema = new mongoose.Schema({
   },
   eatingPreference: {
     type: String,
-    enum: ['pure-veg-only', 'veg-from-anywhere'],
+    enum: ['pure-veg-only', 'veg-from-anywhere','vegetarian', 'non-vegetarian','vegetarian-fried'],
     required: true
   },
   location: {
     type: {
       type: String,
-      default: "Point"
+      enum: ['Point'],
+      default: 'Point',
+      required: true
     },
-    coordinates: [Number] // [lng, lat]
+    coordinates: {
+      type: [Number], // [lng, lat]
+      required: true,
+      validate: {
+        validator: function (v) {
+          return v.length === 2 && v.every(Number.isFinite);
+        },
+        message: 'Coordinates must be an array of [lng, lat]'
+      }
+    }
   },
   filters: {
     priceRange: [Number],
     tags: [String]
-  },
-  menu: [menuItemSchema]
+  }
 }, {
   timestamps: true
 });
 
 restaurantSchema.index({ location: '2dsphere' });
+restaurantSchema.index({ name: 1 }); // for name search
 
 module.exports = mongoose.model('Restaurant', restaurantSchema);
