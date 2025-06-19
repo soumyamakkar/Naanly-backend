@@ -27,6 +27,6 @@ router.get('/preferences', protect, getUserPreferences);
 router.post('/address', protect, addAddress);
 router.get('/addresses', protect, getAddresses);
 router.put('/edit-address/:addressId', protect, editAddress);
-router.delete('/address/:addressId', protect, deleteAddress);
+router.delete('/delete-address/:addressId', protect, deleteAddress);
 
 module.exports = router;
