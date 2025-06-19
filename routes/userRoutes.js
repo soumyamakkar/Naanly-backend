@@ -1,21 +1,32 @@
 const express = require('express');
-const router = express.Router();
-const {
-  sendOtp,verifyOtp, updateProfile, getProfile, addAddress, getAddresses, editAddress
-} = require('../controllers/userController');
 const { protect } = require('../middlewares/authMiddleware');
-// Public routes
-//router.post('/register', registerUser);
+const { 
+  sendOtp,
+  verifyOtp,
+  updateProfile,
+  getProfile,
+  getUserPreferences,
+  addAddress, 
+  getAddresses, 
+  editAddress,
+  deleteAddress
+} = require('../controllers/userController');
+
+const router = express.Router();
+
+// Auth routes
 router.post('/send-otp', sendOtp);
 router.post('/verify-otp', verifyOtp);
-router.patch('/update-profile',protect,updateProfile);
+
+// Profile routes
 router.get('/profile', protect, getProfile);
-router.post('/add-address',protect,addAddress);
-router.get('/get-addressses',protect,getAddresses);
-router.put('/edit-address/:addressId',protect,editAddress);
+router.put('/update-profile', protect, updateProfile);
+router.get('/preferences', protect, getUserPreferences);
 
-
-// Protected route (example: to view profile after login)
-//router.get('/profile', protect, getUserProfile);
+// Address routes
+router.post('/address', protect, addAddress);
+router.get('/addresses', protect, getAddresses);
+router.put('/edit-address/:addressId', protect, editAddress);
+router.delete('/address/:addressId', protect, deleteAddress);
 
 module.exports = router;

@@ -36,9 +36,27 @@ const userSchema = new mongoose.Schema({
     required: true,
   },
   addresses: [{
-  type: mongoose.Schema.Types.ObjectId,
-  ref: 'Address'
-  }]
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Address'
+  }],
+  favorites: [{
+    menuItem: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MenuItem'
+    },
+    restaurantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Restaurant'
+    },
+    addedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  activeCarts: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Cart'
+  }],
 }, {
   timestamps: true,
 });

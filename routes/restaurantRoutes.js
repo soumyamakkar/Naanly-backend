@@ -24,6 +24,9 @@ router.get('/:id/menu/filter', restaurantController.getFilteredMenu);
 // Get filters for UI
 router.get('/:id/filters', restaurantController.getRestaurantFilters);
 
+
+
+//admin routes made just for populating the db...NOT FINAL
 // Add a new restaurant
 router.post('/', restaurantController.addRestaurant);
 

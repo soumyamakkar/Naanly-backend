@@ -36,6 +36,7 @@ exports.verifyOtp = async (req, res) => {
   if (!phone || !otp) return res.status(400).json({ message: "Phone and OTP required" });
 
   const storedOtp = await redis.get(`otp:${phone}`);
+  console.log(storedOtp);
   if (!storedOtp || storedOtp !== otp) {
     return res.status(401).json({ message: "Invalid or expired OTP" });
   }
@@ -160,6 +161,59 @@ exports.editAddress = async (req, res) => {
   } catch (err) {
     console.error("Edit address error:", err);
     res.status(500).json({ message: "Failed to update address" });
+  }
+};
+
+
+exports.deleteAddress = async (req, res) => {
+  const userId = req.user.id;
+  const { addressId } = req.params;
+
+  try {
+    // Find and delete the address document
+    const deletedAddress = await Address.findOneAndDelete({
+      _id: addressId,
+      user: userId
+    });
+
+    if (!deletedAddress) {
+      return res.status(404).json({ message: "Address not found or unauthorized" });
+    }
+
+    // Also remove the reference from the user's addresses array
+    await User.findByIdAndUpdate(userId, {
+      $pull: { addresses: addressId }
+    });
+
+    res.status(200).json({
+      message: "Address deleted successfully",
+      addressId
+    });
+  } catch (err) {
+    console.error("Delete address error:", err);
+    res.status(500).json({ message: "Failed to delete address" });
+  }
+};
+
+
+exports.getUserPreferences = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('dietPreference eatingPreference');
+    
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      message: "User preferences fetched successfully",
+      preferences: {
+        dietPreference: user.dietPreference,        // 'veg' or 'non-veg'
+        eatingPreference: user.eatingPreference     // 'pure-veg-only' or 'veg-from-anywhere'
+      }
+    });
+  } catch (err) {
+    console.error("Error fetching user preferences:", err);
+    res.status(500).json({ message: "Failed to fetch user preferences" });
   }
 };
 
