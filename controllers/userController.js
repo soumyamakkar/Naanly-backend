@@ -79,17 +79,14 @@ exports.verifyOtp = async (req, res) => {
   // }
 
   let user = await User.findOne({ phone });
-  let isNewUser = false;
 
   if (!user) {
-    // Create a "stub" user with just phone, app will collect rest later
+    // Create a minimal user with just phone
     user = await User.create({
       phone,
       name: "",
       email: ""
-      // Removed dietPreference and eatingPreference as they'll use default values
     });
-    isNewUser = true;
   }
 
   const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
@@ -98,28 +95,12 @@ exports.verifyOtp = async (req, res) => {
   // Comment out Redis deletion for testing
   // await redis.del(`otp:${phone}`);
 
-  // If it's a new user, don't send the user object
-  if (isNewUser) {
-    return res.status(201).json({
-      message: "User created, complete your profile",
-      token,
-      isNewUser: true
-    });
-  } 
-  
-  // If returning user, include the user object
+  // Always return token to authenticated user
   return res.status(200).json({
     message: "Login successful",
     token,
-    isNewUser: false,
-    user: {
-      id: user._id,
-      phone: user.phone,
-      name: user.name,
-      email: user.email,
-      dietPreference: user.dietPreference,
-      eatingPreference: user.eatingPreference
-    }
+    user,
+    isProfileComplete:"false"
   });
 };
 
@@ -151,9 +132,17 @@ exports.getProfile = async (req, res) => {
     const user = await User.findById(req.user.id).select("-password");
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    // Check if user has completed their profile
+    const isProfileComplete = Boolean(
+      user.name && 
+      user.dietPreference && 
+      user.eatingPreference
+    );
+
     res.status(200).json({
       message: "User profile fetched successfully",
       user,
+      isProfileComplete
     });
   } catch (err) {
     console.error("Error fetching profile:", err);
