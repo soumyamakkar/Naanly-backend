@@ -1,21 +1,27 @@
 const mongoose = require('mongoose');
 
 const addressSchema = new mongoose.Schema({
-    user: {
+  user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
   label: { 
-    type: String, 
-    required: true 
-  },
-  line1: { 
-    type: String, 
-    required: true 
-  },
-  line2: { 
     type: String 
+  },
+  flatNumber: { 
+    type: String, 
+    required: true,
+    description: "Flat/House No/Floor" 
+  },
+  address: { 
+    type: String, 
+    required: true,
+    description: "Complete address text" 
+  },
+  landmark: { 
+    type: String,
+    description: "Nearby Landmark (Optional)" 
   },
   city: { 
     type: String, 

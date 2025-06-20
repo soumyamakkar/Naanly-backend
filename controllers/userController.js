@@ -3,10 +3,40 @@ const twilio = require('twilio');
 const User = require('../models/userModel');
 const { Address } = require('../models/addressModel');
 const jwt = require('jsonwebtoken');
+const axios = require('axios'); // Add this to your imports at the top
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
 
+
+// Helper function for geocoding
+async function geocodeAddress(flatNumber, address, city, state, pincode) {
+  try {
+    const formattedAddress = encodeURIComponent(`${flatNumber}, ${address}, ${city}, ${state}, ${pincode}, India`);
+    
+    // Using OpenStreetMap/Nominatim API for geocoding (free, no API key needed)
+    const response = await axios.get(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${formattedAddress}&limit=1`,
+      {
+        headers: {
+          'User-Agent': 'Naanly-App/1.0' // Required by Nominatim policy
+        }
+      }
+    );
+    
+    if (response.data && response.data.length > 0) {
+      const result = response.data[0];
+      return [
+        parseFloat(result.lon), // longitude first in GeoJSON format
+        parseFloat(result.lat)  // latitude second
+      ];
+    }
+    return null;
+  } catch (error) {
+    console.error("Geocoding error:", error);
+    return null;
+  }
+}
 
 exports.sendOtp = async (req, res) => {
   const { phone } = req.body;
@@ -59,23 +89,40 @@ exports.verifyOtp = async (req, res) => {
   console.log(token);
   await redis.del(`otp:${phone}`);
 
-  res.status(user.name ? 200 : 201).json({
-    message: isNewUser ? "User created, complete your profile" : "Login successful",
+  // If it's a new user, don't send the user object
+  if (isNewUser) {
+    return res.status(201).json({
+      message: "User created, complete your profile",
+      token,
+      isNewUser: true
+    });
+  } 
+  
+  // If returning user, include the user object
+  return res.status(200).json({
+    message: "Login successful",
     token,
-    user,
-    isNewUser,
+    isNewUser: false,
+    user: {
+      id: user._id,
+      phone: user.phone,
+      name: user.name,
+      email: user.email,
+      dietPreference: user.dietPreference,
+      eatingPreference: user.eatingPreference
+    }
   });
 };
 
 
 exports.updateProfile = async (req, res) => {
   const userId = req.user.id || req.body; // from JWT middleware
-  const { name, email, dietPreference, eatingPreference } = req.body;
+  const { name, dietPreference, eatingPreference } = req.body;
 
   try {
     const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { name, email, dietPreference, eatingPreference },
+      { name, dietPreference, eatingPreference },
       { new: true, runValidators: true }
     );
 
@@ -109,16 +156,62 @@ exports.getProfile = async (req, res) => {
 
 exports.addAddress = async (req, res) => {
   const userId = req.user.id;
-  const data = req.body;
+  const { 
+    flatNumber, 
+    address, 
+    landmark, 
+    city, 
+    state, 
+    pincode 
+  } = req.body;
+
+  // Validate required fields
+  if (!flatNumber || !address || !city || !state || !pincode) {
+    return res.status(400).json({ 
+      message: "Required fields missing: label, flatNumber, address, city, state, and pincode are required" 
+    });
+  }
 
   try {
-    const address = await Address.create({ ...data, user: userId });
+    // Get coordinates from address
+    const coordinates = await geocodeAddress(flatNumber, address, city, state, pincode);
+    
+    // Create the address object
+    const addressData = { 
+      user: userId, 
+      //label, 
+      flatNumber, 
+      address, 
+      city, 
+      state, 
+      pincode 
+    };
+    
+    // Add landmark if provided
+    if (landmark) {
+      addressData.landmark = landmark;
+    }
+    
+    // Add coordinates if geocoding was successful
+    if (coordinates) {
+      addressData.location = {
+        type: "Point",
+        coordinates: coordinates
+      };
+    }
+    
+    // Create the address
+    const newAddress = await Address.create(addressData);
 
+    // Add address to user's addresses array
     await User.findByIdAndUpdate(userId, {
-      $push: { addresses: address._id }
+      $push: { addresses: newAddress._id }
     });
 
-    res.status(201).json({ message: "Address added", address });
+    res.status(201).json({ 
+      message: "Address added successfully", 
+      address: newAddress 
+    });
   } catch (err) {
     console.error("Add address error:", err);
     res.status(500).json({ message: "Failed to add address" });
@@ -141,22 +234,77 @@ exports.getAddresses = async (req, res) => {
 exports.editAddress = async (req, res) => {
   const userId = req.user.id;
   const { addressId } = req.params;
-  const updateData = req.body;
+  const { 
+    label, 
+    flatNumber, 
+    address, 
+    landmark, 
+    city, 
+    state, 
+    pincode 
+  } = req.body;
 
   try {
-    const address = await Address.findOneAndUpdate(
+    // Build the update object
+    const updateData = {};
+    if (label) updateData.label = label;
+    if (flatNumber) updateData.flatNumber = flatNumber;
+    if (address) updateData.address = address;
+    if (landmark !== undefined) updateData.landmark = landmark; // Allow empty string to remove landmark
+    if (city) updateData.city = city;
+    if (state) updateData.state = state;
+    if (pincode) updateData.pincode = pincode;
+    
+    // If address-related fields changed, recalculate coordinates
+    if (flatNumber || address || city || state || pincode) {
+      // Get the existing address to fill in any missing fields for geocoding
+      const existingAddress = await Address.findOne({ _id: addressId, user: userId });
+      
+      if (!existingAddress) {
+        return res.status(404).json({ message: "Address not found or unauthorized" });
+      }
+      
+      // Use provided values or fall back to existing values
+      const addressToGeocode = {
+        flatNumber: flatNumber || existingAddress.flatNumber,
+        address: address || existingAddress.address,
+        city: city || existingAddress.city,
+        state: state || existingAddress.state,
+        pincode: pincode || existingAddress.pincode
+      };
+      
+      // Get new coordinates
+      const coordinates = await geocodeAddress(
+        addressToGeocode.flatNumber,
+        addressToGeocode.address,
+        addressToGeocode.city,
+        addressToGeocode.state,
+        addressToGeocode.pincode
+      );
+      
+      // Update location if geocoding was successful
+      if (coordinates) {
+        updateData.location = {
+          type: "Point",
+          coordinates: coordinates
+        };
+      }
+    }
+
+    // Update the address
+    const updatedAddress = await Address.findOneAndUpdate(
       { _id: addressId, user: userId },
       updateData,
       { new: true, runValidators: true }
     );
 
-    if (!address) {
+    if (!updatedAddress) {
       return res.status(404).json({ message: "Address not found or unauthorized" });
     }
 
     res.status(200).json({
-      message: "Address updated",
-      address
+      message: "Address updated successfully",
+      address: updatedAddress
     });
   } catch (err) {
     console.error("Edit address error:", err);
