@@ -29,7 +29,27 @@ const uploadProfilePicture = multer({
   }
 }).single('profilePicture');
 
+// Configure storage for recipe request media
+const recipeMediaStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'naanly-recipe-media',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'mp4', 'mov'],
+    resource_type: 'auto'
+  }
+});
+
+// Multer upload configuration for recipe media
+const uploadRecipeMedia = multer({
+  storage: recipeMediaStorage,
+  limits: {
+    fileSize: 1024 * 1024 * 50, // 50MB limit for videos
+    files: 5 // Maximum 5 files
+  }
+}).array('media', 5);
+
 module.exports = {
   cloudinary,
-  uploadProfilePicture
+  uploadProfilePicture,
+  uploadRecipeMedia
 };

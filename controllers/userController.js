@@ -86,7 +86,8 @@ exports.verifyOtp = async (req, res) => {
     user = await User.create({
       phone,
       name: "",
-      email: "", 
+      email: ""
+      // Removed dietPreference and eatingPreference as they'll use default values
     });
     isNewUser = true;
   }

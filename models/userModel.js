@@ -4,7 +4,6 @@ const { addressSchema } = require('./addressModel');
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true,
   },
   email: {
     type: String,
@@ -18,15 +17,28 @@ const userSchema = new mongoose.Schema({
   },
   dietPreference: {
     type: String,
-    enum: ['veg', 'non-veg'],
-    required: true,
-    default:"null"
+    enum: ['veg', 'non-veg', ''],
+    default: "", // Empty string as default instead of "null"
+    validate: {
+      validator: function(v) {
+        // Only enforce enum validation when the value is provided
+        // This allows the value to be empty on creation
+        return !v || ['veg', 'non-veg'].includes(v);
+      },
+      message: props => `${props.value} is not a valid diet preference`
+    }
   },
   eatingPreference: {
     type: String,
-    enum: ['pure-veg-only', 'veg-from-anywhere'],
-    required: true,
-    default:"null"
+    enum: ['pure-veg-only', 'veg-from-anywhere', ''],
+    default: "", // Empty string as default instead of "null"
+    validate: {
+      validator: function(v) {
+        // Only enforce enum validation when the value is provided
+        return !v || ['pure-veg-only', 'veg-from-anywhere'].includes(v);
+      },
+      message: props => `${props.value} is not a valid eating preference`
+    }
   },
   profilePicture: {
     type: String,
@@ -44,6 +56,15 @@ const userSchema = new mongoose.Schema({
     restaurantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Restaurant'
+    },
+    chefId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Chef'
+    },
+    sourceType: {
+      type: String,
+      enum: ['restaurant', 'chef'],
+      required: true
     },
     addedAt: {
       type: Date,

@@ -2,15 +2,22 @@ const Cart = require('../models/cartModel');
 const User = require('../models/userModel');
 const { MenuItem } = require('../models/menuItemModel');
 const Restaurant = require('../models/restaurantModel');
+const Chef = require('../models/chefModel');
 
 // Add item to cart
 exports.addToCart = async (req, res) => {
   const userId = req.user.id;
-  const { restaurantId, menuItemId, quantity, customizations = {} } = req.body;
+  const { restaurantId, chefId, menuItemId, quantity, customizations = {} } = req.body;
 
-  if (!restaurantId || !menuItemId || !quantity) {
+  if ((!restaurantId && !chefId) || (restaurantId && chefId)) {
     return res.status(400).json({ 
-      message: "Restaurant ID, menu item ID, and quantity are required" 
+      message: "Either restaurant ID or chef ID must be provided, but not both" 
+    });
+  }
+
+  if (!menuItemId || !quantity) {
+    return res.status(400).json({ 
+      message: "Menu item ID and quantity are required" 
     });
   }
 
@@ -21,20 +28,46 @@ exports.addToCart = async (req, res) => {
       return res.status(404).json({ message: "Menu item not found" });
     }
 
-    // Check if restaurant exists
-    const restaurant = await Restaurant.findById(restaurantId);
-    if (!restaurant) {
-      return res.status(404).json({ message: "Restaurant not found" });
+    // Check if source (restaurant or chef) exists and matches menu item
+    let sourceExists = false;
+    if (restaurantId) {
+      const restaurant = await Restaurant.findById(restaurantId);
+      if (!restaurant) {
+        return res.status(404).json({ message: "Restaurant not found" });
+      }
+      if (menuItem.restaurantId?.toString() !== restaurantId) {
+        return res.status(400).json({ message: "Menu item does not belong to this restaurant" });
+      }
+      sourceExists = true;
+    } else {
+      const chef = await Chef.findById(chefId);
+      if (!chef) {
+        return res.status(404).json({ message: "Chef not found" });
+      }
+      if (menuItem.chefId?.toString() !== chefId) {
+        return res.status(400).json({ message: "Menu item does not belong to this chef" });
+      }
+      sourceExists = true;
     }
 
-    // Find existing cart for this restaurant
-    let cart = await Cart.findOne({ user: userId, restaurant: restaurantId });
+    if (!sourceExists) {
+      return res.status(400).json({ message: "Invalid source for menu item" });
+    }
+
+    // Find existing cart for this restaurant/chef
+    let cart = null;
+    if (restaurantId) {
+      cart = await Cart.findOne({ user: userId, restaurant: restaurantId });
+    } else {
+      cart = await Cart.findOne({ user: userId, chef: chefId });
+    }
     
-    // If no cart exists for this restaurant, create one
+    // If no cart exists, create one
     if (!cart) {
       cart = new Cart({
         user: userId,
-        restaurant: restaurantId,
+        restaurant: restaurantId || null,
+        chef: chefId || null,
         items: []
       });
 
@@ -67,7 +100,11 @@ exports.addToCart = async (req, res) => {
     
     // Populate cart items with menu item details
     await cart.populate('items.menuItem');
-    await cart.populate('restaurant', 'name');
+    if (restaurantId) {
+      await cart.populate('restaurant', 'name');
+    } else {
+      await cart.populate('chef', 'name');
+    }
 
     res.status(200).json({ 
       message: "Item added to cart",

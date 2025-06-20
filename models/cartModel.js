@@ -29,8 +29,11 @@ const cartSchema = new mongoose.Schema({
   },
   restaurant: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Restaurant',
-    required: true
+    ref: 'Restaurant'
+  },
+  chef: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Chef'
   },
   items: [cartItemSchema],
   createdAt: {
@@ -41,6 +44,15 @@ const cartSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  }
+});
+
+// Validator to ensure either restaurant or chef is provided, but not both
+cartSchema.pre('validate', function(next) {
+  if ((this.restaurant && this.chef) || (!this.restaurant && !this.chef)) {
+    next(new Error('Cart must have either a restaurant or chef, but not both'));
+  } else {
+    next();
   }
 });
 

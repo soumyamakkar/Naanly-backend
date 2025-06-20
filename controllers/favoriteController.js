@@ -1,16 +1,17 @@
 const User = require('../models/userModel');
 const { MenuItem } = require('../models/menuItemModel');
 const Restaurant = require('../models/restaurantModel');
+const Chef = require('../models/chefModel');
 const mongoose = require('mongoose');
 
 // Add a menu item to favorites
 exports.addToFavorites = async (req, res) => {
   const userId = req.user.id;
-  const { menuItemId, restaurantId } = req.body;
+  const { menuItemId, restaurantId, chefId } = req.body;
 
-  if (!menuItemId || !restaurantId) {
+  if (!menuItemId || (!restaurantId && !chefId) || (restaurantId && chefId)) {
     return res.status(400).json({ 
-      message: "Menu item ID and restaurant ID are required" 
+      message: "Menu item ID and either restaurant ID or chef ID (not both) are required" 
     });
   }
 
@@ -21,16 +22,25 @@ exports.addToFavorites = async (req, res) => {
       return res.status(404).json({ message: "Menu item not found" });
     }
 
-    // Verify that the restaurant exists
-    const restaurant = await Restaurant.findById(restaurantId);
-    if (!restaurant) {
-      return res.status(404).json({ message: "Restaurant not found" });
+    // Determine source type and verify it exists
+    const sourceType = restaurantId ? 'restaurant' : 'chef';
+    if (sourceType === 'restaurant') {
+      const restaurant = await Restaurant.findById(restaurantId);
+      if (!restaurant) {
+        return res.status(404).json({ message: "Restaurant not found" });
+      }
+    } else {
+      const chef = await Chef.findById(chefId);
+      if (!chef) {
+        return res.status(404).json({ message: "Chef not found" });
+      }
     }
 
     // Check if item is already in favorites
     const user = await User.findById(userId);
     const alreadyFavorited = user.favorites.some(
-      fav => fav.menuItem.toString() === menuItemId && fav.restaurantId.toString() === restaurantId
+      fav => fav.menuItem.toString() === menuItemId && 
+             (fav.restaurantId?.toString() === restaurantId || fav.chefId?.toString() === chefId)
     );
 
     if (alreadyFavorited) {
@@ -42,7 +52,9 @@ exports.addToFavorites = async (req, res) => {
       $push: { 
         favorites: { 
           menuItem: menuItemId, 
-          restaurantId: restaurantId,
+          restaurantId: restaurantId || null,
+          chefId: chefId || null,
+          sourceType: sourceType,
           addedAt: Date.now()
         } 
       }
@@ -170,7 +182,7 @@ exports.checkFavorite = async (req, res) => {
       fav.menuItem.toString() === menuItemId
     );
 
-    res.status(200).json({ isFavorite });
+    res.status(200).json({ isFavorite }); 
   } catch (err) {
     console.error("Check favorite error:", err);
     res.status(500).json({ message: "Failed to check favorite status" });

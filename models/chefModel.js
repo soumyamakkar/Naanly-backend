@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 const shortid = require('shortid'); // For generating short IDs
 
 const chefSchema = new mongoose.Schema({
+  // MongoDB will automatically generate the _id field as ObjectId
+  
   chefId: {
     type: String,
     default: () => `CHEF${shortid.generate().toUpperCase()}`,
@@ -172,9 +174,41 @@ const chefSchema = new mongoose.Schema({
     instagram: String,
     facebook: String,
     website: String
+  },
+  responseTime: {
+    type: Number,
+    default: 60, // Default 60 minutes
+    min: 5,
+    max: 1440, // Maximum 24 hours
+    description: "Expected response time in minutes"
+  },
+  requestSettings: {
+    acceptsFoodRequests: {
+      type: Boolean,
+      default: true
+    },
+    acceptsRentalRequests: {
+      type: Boolean,
+      default: true
+    },
+    acceptsRecipeRequests: {
+      type: Boolean,
+      default: true
+    },
+    customMenu: [String], // List of special dishes available on request
+    rentalMinHours: {
+      type: Number,
+      default: 3
+    },
+    rentalMaxDistance: {
+      type: Number,
+      default: 25 // in km
+    }
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  // This ensures that MongoDB's ObjectId is always generated
+  _id: true
 });
 
 // Indexes for efficient querying

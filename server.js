@@ -12,6 +12,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const restaurantRoutes = require('./routes/restaurantRoutes');
 const chefRoutes = require('./routes/chefRoutes'); // New chef routes
+const chefRequestRoutes = require('./routes/chefRequestRoutes'); // Import chef request routes
 
 // Initialize express app
 const app = express();
@@ -32,6 +33,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/restaurants', restaurantRoutes);
 app.use('/api/chefs', chefRoutes); // Register chef routes
+app.use('/api/chef-requests', chefRequestRoutes); // Register chef request routes
 
 // Root route
 app.get('/', (req, res) => {
