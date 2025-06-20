@@ -1,4 +1,5 @@
 const Notification = require('../models/notificationModel');
+const User = require('../models/userModel');
 
 // Get all notifications for a user with pagination
 exports.getAllNotifications = async (req, res) => {
@@ -7,8 +8,9 @@ exports.getAllNotifications = async (req, res) => {
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   try {
-    // Get notifications with pagination
+    // Get notifications with pagination and populate sender info
     const notifications = await Notification.find({ user: userId })
+      .populate('sender', 'name profilePicture')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -49,6 +51,7 @@ exports.getUnreadNotifications = async (req, res) => {
       user: userId,
       isRead: false 
     })
+      .populate('sender', 'name profilePicture')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -84,6 +87,7 @@ exports.getReadNotifications = async (req, res) => {
       user: userId,
       isRead: true 
     })
+      .populate('sender', 'name profilePicture')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -118,7 +122,7 @@ exports.markAsRead = async (req, res) => {
       { _id: notificationId, user: userId },
       { isRead: true, readAt: new Date() },
       { new: true }
-    );
+    ).populate('sender', 'name profilePicture');
 
     if (!notification) {
       return res.status(404).json({ message: "Notification not found" });
@@ -199,13 +203,55 @@ exports.getNotificationCount = async (req, res) => {
 };
 
 // Create notification (utility function for internal use)
-exports.createNotification = async (userId, message) => {
+exports.createNotification = async (req, res) => {
   try {
-    const notification = new Notification({
+    const { userId, message, senderId } = req.body;
+
+    if (!userId || !message) {
+      return res.status(400).json({ message: "User ID and message are required" });
+    }
+
+    const notificationData = {
       user: userId,
       message
+    };
+
+    // Add sender if provided (for user-to-user notifications)
+    if (senderId) {
+      notificationData.sender = senderId;
+    }
+
+    const notification = new Notification(notificationData);
+    await notification.save();
+
+    // Populate sender info before returning
+    const populatedNotification = await Notification.findById(notification._id)
+      .populate('sender', 'name profilePicture');
+
+    res.status(201).json({
+      message: "Notification created successfully",
+      notification: populatedNotification
     });
-    
+  } catch (err) {
+    console.error("Create notification error:", err);
+    res.status(500).json({ message: "Failed to create notification" });
+  }
+};
+
+// Utility function for internal use
+exports.createNotificationUtil = async (userId, message, senderId = null) => {
+  try {
+    const notificationData = {
+      user: userId,
+      message
+    };
+
+    // Add sender if provided
+    if (senderId) {
+      notificationData.sender = senderId;
+    }
+
+    const notification = new Notification(notificationData);
     await notification.save();
     return notification;
   } catch (err) {

@@ -27,7 +27,7 @@ router.put('/read/:notificationId', markAsRead);
 router.put('/read-all', markAllAsRead);
 
 // Delete notification
-router.delete('/:notificationId', deleteNotification);
+router.delete('/delete/:notificationId', deleteNotification);
 
 //admin api, wil be deleted from here
 router.post('/send',createNotification);

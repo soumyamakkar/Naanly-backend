@@ -4,6 +4,7 @@ const User = require('../models/userModel');
 const { Address } = require('../models/addressModel');
 const jwt = require('jsonwebtoken');
 const axios = require('axios'); // Add this to your imports at the top
+const { uploadProfilePicture } = require('../config/cloudinary');
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
@@ -85,8 +86,7 @@ exports.verifyOtp = async (req, res) => {
     user = await User.create({
       phone,
       name: "",
-      email: "",
-      password: "otp-login", // dummy, will never be used
+      email: "", 
     });
     isNewUser = true;
   }
@@ -332,5 +332,65 @@ exports.getUserPreferences = async (req, res) => {
     console.error("Error fetching user preferences:", err);
     res.status(500).json({ message: "Failed to fetch user preferences" });
   }
+};
+
+// Add this new controller function
+exports.editProfile = (req, res) => {
+  // Use multer middleware to handle file upload
+  uploadProfilePicture(req, res, async function(err) {
+    if (err) {
+      return res.status(400).json({ 
+        message: "Error uploading image", 
+        error: err.message 
+      });
+    }
+    
+    const userId = req.user.id;
+    const { name, email } = req.body;
+    
+    try {
+      // Build the update object with profile fields
+      const updateData = {};
+      if (name) updateData.name = name;
+      if (email) updateData.email = email;
+      
+      // If a file was uploaded, add the profilePicture field
+      if (req.file) {
+        updateData.profilePicture = req.file.path;
+      }
+      
+      // Only update if there's something to update
+      if (Object.keys(updateData).length === 0 && !req.file) {
+        return res.status(400).json({ message: "No update data provided" });
+      }
+      
+      // Update the user
+      const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        updateData,
+        { new: true, runValidators: true }
+      ).select("-password");
+      
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      res.status(200).json({
+        message: "Profile edited successfully",
+        user: {
+          id: updatedUser._id,
+          name: updatedUser.name,
+          phone: updatedUser.phone,
+          email: updatedUser.email,
+          profilePicture: updatedUser.profilePicture,
+          dietPreference: updatedUser.dietPreference,
+          eatingPreference: updatedUser.eatingPreference
+        }
+      });
+    } catch (err) {
+      console.error("Profile edit error:", err);
+      res.status(500).json({ message: "Failed to edit profile" });
+    }
+  });
 };
 

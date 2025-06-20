@@ -10,6 +10,8 @@ const favoriteRoutes = require('./routes/favoriteRoutes');
 const cartRoutes = require('./routes/cartRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const restaurantRoutes = require('./routes/restaurantRoutes');
+const chefRoutes = require('./routes/chefRoutes'); // New chef routes
 
 // Initialize express app
 const app = express();
@@ -28,6 +30,8 @@ app.use('/api/favorites', favoriteRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/restaurants', restaurantRoutes);
+app.use('/api/chefs', chefRoutes); // Register chef routes
 
 // Root route
 app.get('/', (req, res) => {

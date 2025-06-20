@@ -4,7 +4,13 @@ const notificationSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: true,
+    description: "User who receives the notification"
+  },
+  sender: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    description: "User who sent the notification (optional - can be null for system notifications)"
   },
   message: {
     type: String,
@@ -24,5 +30,6 @@ const notificationSchema = new mongoose.Schema({
 
 // Index to optimize querying by user and read status
 notificationSchema.index({ user: 1, isRead: 1 });
+notificationSchema.index({ user: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Notification', notificationSchema);

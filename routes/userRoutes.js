@@ -4,6 +4,7 @@ const {
   sendOtp,
   verifyOtp,
   updateProfile,
+  editProfile, // Add this new controller
   getProfile,
   getUserPreferences,
   addAddress, 
@@ -21,6 +22,7 @@ router.post('/verify-otp', verifyOtp);
 // Profile routes
 router.get('/profile', protect, getProfile);
 router.put('/update-profile', protect, updateProfile);
+router.post('/edit-profile', protect, editProfile); // Add this new route - POST for file upload
 router.get('/preferences', protect, getUserPreferences);
 
 // Address routes
