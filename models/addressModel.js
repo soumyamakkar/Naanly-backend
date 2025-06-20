@@ -23,24 +23,15 @@ const addressSchema = new mongoose.Schema({
     type: String,
     description: "Nearby Landmark (Optional)" 
   },
-  city: { 
-    type: String, 
-    required: true 
-  },
-  state: { 
-    type: String, 
-    required: true 
-  },
-  pincode: { 
-    type: String, 
-    required: true 
-  },
   location: {
     type: { 
       type: String, 
       default: "Point" 
     },
-    coordinates: [Number], // [lng, lat]
+    coordinates: {
+      type: [Number], // [lng, lat]
+      required: true
+    }
   }
 }, {
   timestamps: true,
