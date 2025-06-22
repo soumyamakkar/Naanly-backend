@@ -25,7 +25,8 @@ const paymentSchema = new mongoose.Schema({
     type: String
   },
   paymentGatewayResponse: {
-    type: Object
+    type: String,
+    enum: ['success','failed','pending']
   }
 }, {
   timestamps: true

@@ -5,7 +5,7 @@ const Payment = require('../models/paymentModel');
 const Restaurant = require('../models/restaurantModel');
 const Rating = require('../models/ratingModel'); // Add this
 const PromoCode = require('../models/promoCodeModel'); // Import PromoCode model
-const MenuItem = require('../models/menuItemModel'); // Import MenuItem model
+const { MenuItem } = require('../models/menuItemModel'); // Keep the named import
 
 // Place a new order from cart
 exports.placeOrder = async (req, res) => {
@@ -200,7 +200,7 @@ exports.placeOrder = async (req, res) => {
     for (const item of orderItems) {
       await MenuItem.findByIdAndUpdate(item.itemId, {
         $inc: { 'popularity.orderCount': item.quantity },
-        'popularity.lastOrderedAt': new Date()
+        $set: { 'popularity.lastOrderedAt': new Date() }
       });
     }
 
