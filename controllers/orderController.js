@@ -3,6 +3,9 @@ const Cart = require('../models/cartModel');
 const User = require('../models/userModel');
 const Payment = require('../models/paymentModel');
 const Restaurant = require('../models/restaurantModel');
+const Rating = require('../models/ratingModel'); // Add this
+const PromoCode = require('../models/promoCodeModel'); // Import PromoCode model
+const MenuItem = require('../models/menuItemModel'); // Import MenuItem model
 
 // Place a new order from cart
 exports.placeOrder = async (req, res) => {
@@ -10,8 +13,13 @@ exports.placeOrder = async (req, res) => {
   const { 
     cartId, 
     deliveryAddressId, 
-    paymentMethod, // 'cod', 'card', 'upi', etc.
-    paymentGatewayResponse = null // For prepaid orders
+    paymentMethod,
+    cookingInstructions = '',
+    deliveryInstructions = '',
+    tip = { amount: 0, percentage: 0 },
+    promoCode = '',
+    redeemNanoPoints = 0,
+    paymentGatewayResponse = null
   } = req.body;
 
   if (!cartId || !deliveryAddressId || !paymentMethod) {
@@ -25,9 +33,8 @@ exports.placeOrder = async (req, res) => {
     const cart = await Cart.findOne({ _id: cartId, user: userId })
       .populate({
         path: 'items.menuItem',
-        select: 'name price isVeg restaurantId'
-      })
-      .populate('restaurant');
+        select: 'name price isVeg restaurantId chefId'
+      });
 
     if (!cart) {
       return res.status(404).json({ message: "Cart not found" });
@@ -47,27 +54,113 @@ exports.placeOrder = async (req, res) => {
       return res.status(404).json({ message: "Delivery address not found" });
     }
 
-    const deliveryAddress = user.addresses[0];
-
-    // Create order items from cart items
+    // Create order items preserving customizations
     const orderItems = cart.items.map(item => ({
       itemId: item.menuItem._id,
       quantity: item.quantity,
-      price: item.price
+      price: item.price,
+      customizations: item.customizations
     }));
 
-    // Calculate total (recalculate to ensure accuracy)
-    const totalAmount = orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    // Calculate subtotal (sum of all items)
+    const subtotal = orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+    // Apply promo code if provided
+    let promoDiscount = 0;
+    if (promoCode) {
+      // Fetch and validate promo code
+      const validPromo = await PromoCode.findOne({ 
+        code: promoCode,
+        isActive: true,
+        expiryDate: { $gt: new Date() }
+      });
+
+      if (validPromo) {
+        if (validPromo.discountType === 'percentage') {
+          promoDiscount = (subtotal * validPromo.discountValue / 100);
+          // Apply max discount cap if exists
+          if (validPromo.maxDiscount && promoDiscount > validPromo.maxDiscount) {
+            promoDiscount = validPromo.maxDiscount;
+          }
+        } else {
+          promoDiscount = validPromo.discountValue;
+        }
+      }
+    }
+
+    // Apply nano points redemption if requested
+    let nanoPointsDiscount = 0;
+    if (redeemNanoPoints > 0) {
+      // Check if user has sufficient points
+      if (redeemNanoPoints <= user.nanoPoints) {
+        // Convert points to discount (e.g., 1 point = ₹0.10)
+        nanoPointsDiscount = redeemNanoPoints * 0.10;
+        
+        // Deduct points from user account
+        user.nanoPoints -= redeemNanoPoints;
+        await user.save();
+      } else {
+        return res.status(400).json({ message: "Insufficient nano points" });
+      }
+    }
+
+    // Calculate total discount
+    const totalDiscount = promoDiscount + nanoPointsDiscount;
+
+    // Calculate delivery fee, taxes, and other charges
+    // These could be based on distance, order value, or a fixed amount
+    const deliveryFee = 40; // Example fixed delivery fee
+    const packagingFee = 15; // Example packaging fee
+    const platformFee = 10; // Example platform fee
+    
+    // Calculate tax (example: 5% of subtotal)
+    const tax = Math.round(subtotal * 0.05);
+
+    // Calculate final total
+    const totalWithTip = subtotal + deliveryFee + tax + packagingFee + platformFee - totalDiscount + tip.amount;
+
+    // Calculate nano points earned (e.g., 1 point per ₹10 spent)
+    const nanoPointsEarned = Math.floor(subtotal / 10);
+
+    // Create billing details
+    const billing = {
+      subtotal,
+      discounts: {
+        promoCode: {
+          code: promoCode || '',
+          amount: promoDiscount
+        },
+        nanoPointsRedemption: {
+          points: redeemNanoPoints,
+          amount: nanoPointsDiscount
+        },
+        totalDiscount
+      },
+      deliveryFee,
+      tax,
+      packagingFee,
+      platformFee,
+      totalAmount: totalWithTip
+    };
+
+    // Determine restaurantId or chefId from cart
+    const restaurantId = cart.restaurant ? cart.restaurant._id : null;
+    const chefId = cart.chef ? cart.chef._id : null;
 
     // Create new order
     const order = new Order({
       userId,
-      restaurantId: cart.restaurant._id,
+      restaurantId,
+      chefId,
       items: orderItems,
-      totalAmount,
+      cookingInstructions,
+      deliveryInstructions,
+      tip,
+      billing,
       status: 'placed',
-      paymentStatus: paymentMethod === 'cod' ? 'pending' : 'pending', // Will update based on payment confirmation
-      deliveryAddress
+      paymentStatus: paymentMethod === 'cod' ? 'pending' : 'pending',
+      deliveryAddress: user.addresses[0],
+      nanoPointsEarned
     });
 
     await order.save();
@@ -76,8 +169,8 @@ exports.placeOrder = async (req, res) => {
     const payment = new Payment({
       orderId: order._id,
       method: paymentMethod,
-      status: paymentMethod === 'cod' ? 'pending' : 'pending', // For COD, stays pending until delivery
-      amount: totalAmount,
+      status: paymentMethod === 'cod' ? 'pending' : 'pending',
+      amount: totalWithTip,
       paymentGatewayResponse
     });
 
@@ -89,6 +182,10 @@ exports.placeOrder = async (req, res) => {
       payment.status = 'success';
       await order.save();
       await payment.save();
+      
+      // Add earned nano points to user account
+      user.nanoPoints += nanoPointsEarned;
+      await user.save();
     }
 
     // Clear the cart after order placement
@@ -99,9 +196,22 @@ exports.placeOrder = async (req, res) => {
       $pull: { activeCarts: cartId }
     });
 
+    // Update menu item popularity
+    for (const item of orderItems) {
+      await MenuItem.findByIdAndUpdate(item.itemId, {
+        $inc: { 'popularity.orderCount': item.quantity },
+        'popularity.lastOrderedAt': new Date()
+      });
+    }
+
     res.status(201).json({
       message: "Order placed successfully",
-      order,
+      order: {
+        _id: order._id,
+        status: order.status,
+        billing: order.billing,
+        nanoPointsEarned
+      },
       payment: {
         method: payment.method,
         status: payment.status
@@ -181,6 +291,118 @@ exports.getUserOrders = async (req, res) => {
   } catch (err) {
     console.error("Get user orders error:", err);
     res.status(500).json({ message: "Failed to fetch orders" });
+  }
+};
+
+// Get ongoing orders for a user (placed, preparing, out-for-delivery)
+exports.getUserOngoingOrders = async (req, res) => {
+  const userId = req.user.id;
+  const { limit = 10, page = 1 } = req.query;
+  
+  try {
+    // Ongoing orders are those that haven't been delivered or cancelled
+    const query = { 
+      userId,
+      status: { $nin: ['delivered', 'cancelled'] }
+    };
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('restaurantId', 'name')
+      .populate('chefId', 'name kitchenName')
+      .select('status totalAmount createdAt items estimatedDeliveryTime');
+
+    const total = await Order.countDocuments(query);
+
+    res.status(200).json({
+      orders,
+      pagination: {
+        totalOrders: total,
+        totalPages: Math.ceil(total / parseInt(limit)),
+        currentPage: parseInt(page),
+        hasNext: skip + orders.length < total,
+        hasPrev: page > 1
+      }
+    });
+  } catch (err) {
+    console.error("Get ongoing orders error:", err);
+    res.status(500).json({ message: "Failed to fetch ongoing orders" });
+  }
+};
+
+// Get past orders for a user (delivered and cancelled)
+exports.getUserPastOrders = async (req, res) => {
+  const userId = req.user.id;
+  const { limit = 10, page = 1, status } = req.query;
+  
+  try {
+    // Build the query for past orders
+    const query = { 
+      userId,
+      status: { $in: ['delivered', 'cancelled'] }
+    };
+    
+    // If specific status is requested, filter by it
+    if (status && ['delivered', 'cancelled'].includes(status)) {
+      query.status = status;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('restaurantId', 'name')
+      .populate('chefId', 'name kitchenName')
+      .select('status totalAmount createdAt items');
+
+    const total = await Order.countDocuments(query);
+
+    // Get ratings for these orders
+    const orderIds = orders.map(order => order._id);
+    const ratings = await Rating.find({
+      orderId: { $in: orderIds },
+      user: userId
+    }).select('orderId rating comment');
+
+    // Create a map of ratings by orderId for easy lookup
+    const ratingsByOrderId = {};
+    ratings.forEach(rating => {
+      ratingsByOrderId[rating.orderId.toString()] = {
+        rating: rating.rating,
+        comment: rating.comment
+      };
+    });
+
+    // Add rating information to orders
+    const ordersWithRating = orders.map(order => {
+      const orderObject = order.toObject();
+      const orderId = order._id.toString();
+      
+      orderObject.rating = ratingsByOrderId[orderId] || null;
+      orderObject.canRate = order.status === 'delivered' && !ratingsByOrderId[orderId];
+      
+      return orderObject;
+    });
+
+    res.status(200).json({
+      orders: ordersWithRating,
+      pagination: {
+        totalOrders: total,
+        totalPages: Math.ceil(total / parseInt(limit)),
+        currentPage: parseInt(page),
+        hasNext: skip + orders.length < total,
+        hasPrev: page > 1
+      }
+    });
+  } catch (err) {
+    console.error("Get past orders error:", err);
+    res.status(500).json({ message: "Failed to fetch past orders" });
   }
 };
 

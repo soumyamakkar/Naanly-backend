@@ -16,8 +16,14 @@ const cartItemSchema = new mongoose.Schema({
     required: true
   },
   customizations: {
-    type: Object,
-    default: {}
+    // Change from selectedPrepType to spiceLevel for consistency
+    spiceLevel: String,
+    addOns: [{
+      name: String,
+      price: Number,
+      isVeg: Boolean
+    }],
+    needsCutlery: Boolean,
   }
 });
 

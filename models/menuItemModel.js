@@ -30,6 +30,48 @@ const menuItemSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // New fields for ingredients, allergens, and oil type
+  keyIngredients: {
+    type: [String],
+    default: []
+  },
+  allergens: {
+    type: [String],
+    //enum: ["Milk", "Eggs", "Fish", "Shellfish", "Tree nuts", "Peanuts", "Wheat", "Soybeans", "Sesame", "Mustard", "Celery", "Sulphites", "Lupin", "Molluscs"],
+    default: []
+  },
+  oilType: {
+    type: String,
+    //enum: ["Sunflower", "Olive", "Mustard", "Coconut", "Groundnut", "Sesame", "Rice bran", "Soybean", "Canola", "Ghee", "Butter", "No oil used"],
+    default: "No oil used"
+  },
+  // Customization options
+  customizationOptions: {
+    spiceLevel: {
+      type: String,
+      enum: ["Classic", "Spicy"],
+      default: "Classic"
+    },
+    addOns: [{
+      name: {
+        type: String,
+        required: true
+      },
+      price: {
+        type: Number,
+        required: true,
+        default: 0
+      },
+      isVeg: {
+        type: Boolean,
+        default: true
+      }
+    }],
+    needsCutlery: {
+      type: Boolean,
+      default: true
+    }
+  },
   preparationTime: {
     type: Number, // in minutes
     default: 30
@@ -61,6 +103,34 @@ const menuItemSchema = new mongoose.Schema({
       type: String,
       default: "1 serving"
     }
+  },
+  specialOffer: {
+    isSpecial: {
+      type: Boolean,
+      default: false
+    },
+    validFrom: {
+      type: Date
+    },
+    validUntil: {
+      type: Date
+    },
+    specialPrice: {
+      type: Number
+    },
+    description: {
+      type: String
+    }
+  },
+  popularity: {
+    orderCount: {
+      type: Number,
+      default: 0
+    },
+    lastOrderedAt: {
+      type: Date,
+      default: null
+    }
   }
 }, {
   timestamps: true
@@ -86,6 +156,8 @@ menuItemSchema.index({ restaurantId: 1 });
 menuItemSchema.index({ chefId: 1 });
 menuItemSchema.index({ isVeg: 1 });
 menuItemSchema.index({ category: 1 });
+menuItemSchema.index({ allergens: 1 }); // Index for allergen searches
+menuItemSchema.index({ keyIngredients: 1 }); // Index for ingredient searches
 
 menuItemSchema.set('toJSON', { virtuals: true });
 menuItemSchema.set('toObject', { virtuals: true });

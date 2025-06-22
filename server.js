@@ -13,6 +13,9 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const restaurantRoutes = require('./routes/restaurantRoutes');
 const chefRoutes = require('./routes/chefRoutes'); // New chef routes
 const chefRequestRoutes = require('./routes/chefRequestRoutes'); // Import chef request routes
+const ratingRoutes = require('./routes/ratingRoutes'); // Import rating routes
+const homeRoutes = require('./routes/homeRoutes'); // Import home routes
+const menuItemRoutes = require('./routes/menuItemRoutes'); // Import menu item routes
 
 // Initialize express app
 const app = express();
@@ -34,6 +37,9 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/restaurants', restaurantRoutes);
 app.use('/api/chefs', chefRoutes); // Register chef routes
 app.use('/api/chef-requests', chefRequestRoutes); // Register chef request routes
+app.use('/api/ratings', ratingRoutes); // Register rating routes
+app.use('/api/home', homeRoutes); // Register home routes
+app.use('/api/menu-items', menuItemRoutes); // Register menu item routes
 
 // Root route
 app.get('/', (req, res) => {

@@ -28,19 +28,23 @@ exports.getChefById = async (req, res) => {
   }
 };
 
-// Get chefs by name (case-insensitive, partial match)
+// Get chefs by name or kitchen name (case-insensitive, partial match)
 exports.getChefsByName = async (req, res) => {
   try {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'Name query required' });
     
     const chefs = await Chef.find({ 
-      name: { $regex: name, $options: 'i' },
+      $or: [
+        { name: { $regex: name, $options: 'i' } },
+        { kitchenName: { $regex: name, $options: 'i' } }
+      ],
       isActive: true
     });
     
     res.json(chefs);
   } catch (err) {
+    console.error('Error searching chefs by name:', err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -65,7 +69,7 @@ exports.getChefsBySpeciality = async (req, res) => {
 // Get chefs nearby (within X km)
 exports.getChefsNearby = async (req, res) => {
   try {
-    const { lng, lat, distance = 5 } = req.query;
+    const { lng, lat, distance = 10 } = req.query;
     if (!lng || !lat) return res.status(400).json({ error: 'lng and lat required' });
     
     const chefs = await Chef.find({

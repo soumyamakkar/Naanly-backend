@@ -158,7 +158,8 @@ exports.addAddress = async (req, res) => {
     flatNumber, 
     address, 
     landmark, 
-    coordinates // Now accepting coordinates directly from the body
+    coordinates,
+    isDefault = false // Optional flag to set as default
   } = req.body;
 
   // Validate required fields
@@ -177,15 +178,30 @@ exports.addAddress = async (req, res) => {
   }
 
   try {
-    // Create the address object with provided coordinates
+    // Check if user has any addresses
+    const addressCount = await Address.countDocuments({ user: userId });
+    
+    // If no addresses or isDefault is true, set this as default
+    const shouldBeDefault = isDefault || addressCount === 0;
+    
+    // If setting as default, unset any existing default address
+    if (shouldBeDefault) {
+      await Address.updateMany(
+        { user: userId, isDefault: true },
+        { isDefault: false }
+      );
+    }
+
+    // Create the address object
     const addressData = { 
       user: userId, 
       flatNumber, 
       address, 
       location: {
         type: "Point",
-        coordinates: coordinates // Use coordinates from request body
-      }
+        coordinates: coordinates
+      },
+      isDefault: shouldBeDefault
     };
     
     // Add landmark if provided
@@ -231,7 +247,8 @@ exports.editAddress = async (req, res) => {
     flatNumber, 
     address, 
     landmark, 
-    coordinates // Now accepting coordinates directly from the body 
+    coordinates,
+    isDefault
   } = req.body;
 
   try {
@@ -239,7 +256,7 @@ exports.editAddress = async (req, res) => {
     const updateData = {};
     if (flatNumber) updateData.flatNumber = flatNumber;
     if (address) updateData.address = address;
-    if (landmark !== undefined) updateData.landmark = landmark; // Allow empty string to remove landmark
+    if (landmark !== undefined) updateData.landmark = landmark;
     
     // Update coordinates if provided
     if (coordinates && Array.isArray(coordinates) && coordinates.length === 2 &&
@@ -248,6 +265,16 @@ exports.editAddress = async (req, res) => {
         type: "Point",
         coordinates: coordinates
       };
+    }
+    
+    // Handle default address change if requested
+    if (isDefault === true) {
+      // Unset any existing default address
+      await Address.updateMany(
+        { user: userId, isDefault: true },
+        { isDefault: false }
+      );
+      updateData.isDefault = true;
     }
 
     // Update the address
@@ -382,5 +409,147 @@ exports.editProfile = (req, res) => {
       res.status(500).json({ message: "Failed to edit profile" });
     }
   });
+};
+
+exports.getDefaultAddress = async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    // Find the user's default address
+    const defaultAddress = await Address.findOne({ 
+      user: userId,
+      isDefault: true
+    });
+
+    // If no default address is found
+    if (!defaultAddress) {
+      // Try to get the first address
+      const firstAddress = await Address.findOne({ user: userId }).sort({ createdAt: 1 });
+      
+      if (!firstAddress) {
+        return res.status(404).json({ 
+          message: "No addresses found",
+          hasAddresses: false
+        });
+      }
+      
+      // Set the first address as default
+      firstAddress.isDefault = true;
+      await firstAddress.save();
+      
+      return res.status(200).json({
+        message: "Default address found (auto-selected)",
+        address: firstAddress
+      });
+    }
+
+    res.status(200).json({
+      message: "Default address found",
+      address: defaultAddress
+    });
+  } catch (err) {
+    console.error("Get default address error:", err);
+    res.status(500).json({ message: "Failed to fetch default address" });
+  }
+};
+
+exports.setDefaultAddress = async (req, res) => {
+  const userId = req.user.id;
+  const { addressId } = req.params;
+
+  try {
+    // First check if address exists and belongs to user
+    const address = await Address.findOne({
+      _id: addressId,
+      user: userId
+    });
+
+    if (!address) {
+      return res.status(404).json({ message: "Address not found or unauthorized" });
+    }
+
+    // Unset any existing default address
+    await Address.updateMany(
+      { user: userId, isDefault: true },
+      { isDefault: false }
+    );
+
+    // Set the selected address as default
+    address.isDefault = true;
+    await address.save();
+
+    res.status(200).json({
+      message: "Default address updated successfully",
+      address
+    });
+  } catch (err) {
+    console.error("Set default address error:", err);
+    res.status(500).json({ message: "Failed to update default address" });
+  }
+};
+
+// Get user's nano points balance and history
+exports.getNanoPoints = async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    const user = await User.findById(userId)
+      .select('nanoPoints nanoPointsHistory')
+      .populate({
+        path: 'nanoPointsHistory.orderId',
+        select: 'billing.totalAmount createdAt'
+      });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      nanoPoints: user.nanoPoints,
+      pointsHistory: user.nanoPointsHistory
+    });
+  } catch (err) {
+    console.error("Get nano points error:", err);
+    res.status(500).json({ message: "Failed to fetch nano points" });
+  }
+};
+
+// Add bonus nano points to user (admin only)
+exports.addBonusNanoPoints = async (req, res) => {
+  const { userId, points, description } = req.body;
+  
+  if (!userId || !points || points <= 0) {
+    return res.status(400).json({ message: "User ID and points (>0) are required" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Add points to user's balance
+    user.nanoPoints += points;
+    
+    // Add to history
+    user.nanoPointsHistory.push({
+      points,
+      type: 'bonus',
+      description: description || 'Bonus nano points'
+    });
+    
+    await user.save();
+
+    res.status(200).json({ 
+      message: "Bonus points added successfully",
+      userId,
+      pointsAdded: points,
+      newBalance: user.nanoPoints
+    });
+  } catch (err) {
+    console.error("Add bonus points error:", err);
+    res.status(500).json({ message: "Failed to add bonus points" });
+  }
 };
 

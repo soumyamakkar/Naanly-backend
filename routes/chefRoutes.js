@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const chefController = require('../controllers/chefController');
-const authMiddleware = require('../middlewares/authMiddleware');
+const {protect}= require('../middlewares/authMiddleware');
+
+
+router.use(protect);
 
 // Get all chefs
 router.get('/', chefController.getAllChefs);
@@ -34,7 +37,7 @@ router.get('/:id/filters', chefController.getChefFilters);
 router.get('/:id/availability', chefController.checkChefAvailability);
 
 // Admin routes - will be protected in production
-router.post('/', chefController.addChef);
+router.post('/add', chefController.addChef);
 router.post('/:id/menu', chefController.addChefMenuItem);
 
 module.exports = router;

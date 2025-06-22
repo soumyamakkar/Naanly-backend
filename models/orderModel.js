@@ -29,12 +29,89 @@ const orderSchema = new mongoose.Schema({
     price: {
       type: Number,
       required: true
+    },
+    // Added item customizations to preserve order details
+    customizations: {
+      spiceLevel: String,
+      cookingInstructions: String, // Specific cooking instructions for this item
+      addOns: [{
+        name: String,
+        price: Number,
+        isVeg: Boolean
+      }],
+      needsCutlery: Boolean
     }
   }],
-  totalAmount: {
-    type: Number,
-    required: true
+  // Special instructions
+  cookingInstructions: {
+    type: String,
+    maxlength: 500,
+    default: ''  // Optional general cooking instructions
   },
+  deliveryInstructions: {
+    type: String,
+    maxlength: 500,
+    default: ''  // Instructions for the delivery person
+  },
+  // Tip details
+  tip: {
+    amount: {
+      type: Number,
+      enum: [0, 10, 15, 20, 25, 'custom'],
+      default: 0  // Amount in rupees
+    }
+  },
+  // Bill details
+  billing: {
+    subtotal: {
+      type: Number,
+      required: true  // Sum of all items before discounts, taxes, fees
+    },
+    discounts: {
+      promoCode: {
+        code: String,
+        amount: {
+          type: Number,
+          default: 0
+        }
+      },
+      nanoPointsRedemption: {
+        points: {
+          type: Number,
+          default: 0
+        },
+        amount: {
+          type: Number,
+          default: 0
+        }
+      },
+      totalDiscount: {
+        type: Number,
+        default: 0
+      }
+    },
+    deliveryFee: {
+      type: Number,
+      default: 0
+    },
+    tax: {
+      type: Number,
+      default: 0
+    },
+    packagingFee: {
+      type: Number,
+      default: 0
+    },
+    platformFee: {
+      type: Number,
+      default: 0
+    },
+    totalAmount: {
+      type: Number,
+      required: true
+    }
+  },
+  // Original fields
   status: {
     type: String,
     enum: ['placed', 'preparing', 'out-for-delivery', 'delivered', 'cancelled'],
@@ -54,6 +131,11 @@ const orderSchema = new mongoose.Schema({
   scheduledFor: {
     type: Date,
     default: null // For chef orders with scheduled delivery
+  },
+  // New field for nano points earned from this order
+  nanoPointsEarned: {
+    type: Number,
+    default: 0
   }
 }, {
   timestamps: true

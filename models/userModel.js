@@ -75,6 +75,26 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Cart'
   }],
+  nanoPoints: {
+    type: Number,
+    default: 0
+  },
+  nanoPointsHistory: [{
+    points: Number,
+    type: {
+      type: String,
+      enum: ['earned', 'redeemed', 'expired', 'bonus']
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Order'
+    },
+    description: String,
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  }]
 }, {
   timestamps: true,
 });

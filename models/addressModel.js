@@ -32,12 +32,17 @@ const addressSchema = new mongoose.Schema({
       type: [Number], // [lng, lat]
       required: true
     }
+  },
+  isDefault: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true,
 });
 
 addressSchema.index({ location: '2dsphere' });
+addressSchema.index({ user: 1, isDefault: 1 }); // For efficient querying of user's default address
 
 module.exports = { 
   addressSchema,

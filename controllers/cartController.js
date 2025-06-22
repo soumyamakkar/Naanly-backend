@@ -28,6 +28,39 @@ exports.addToCart = async (req, res) => {
       return res.status(404).json({ message: "Menu item not found" });
     }
 
+    // Calculate total price including base price and customizations
+    let totalItemPrice = menuItem.price;
+    
+    // Add price for add-ons if any
+    if (customizations.selectedAddOns && customizations.selectedAddOns.length > 0) {
+      // Validate add-ons against menu item's available add-ons
+      const validAddOns = [];
+      
+      for (const selectedAddOn of customizations.selectedAddOns) {
+        const menuAddOn = menuItem.customizationOptions.addOns.find(
+          addOn => addOn.name === selectedAddOn.name
+        );
+        
+        if (menuAddOn) {
+          // Use the price from the menu item's definition, not from the request
+          validAddOns.push({
+            name: menuAddOn.name,
+            price: menuAddOn.price,
+            isVeg: menuAddOn.isVeg
+          });
+          
+          // Add the add-on price to the total
+          totalItemPrice += menuAddOn.price;
+        }
+      }
+      
+      // Replace selected add-ons with validated ones
+      customizations.selectedAddOns = validAddOns;
+    }
+    
+    // Handle spice level price if applicable (future enhancement)
+    // This would be implemented if spice levels had different prices
+
     // Check if source (restaurant or chef) exists and matches menu item
     let sourceExists = false;
     if (restaurantId) {
@@ -77,20 +110,26 @@ exports.addToCart = async (req, res) => {
       });
     }
 
-    // Check if item already exists in cart
-    const existingItemIndex = cart.items.findIndex(
-      item => item.menuItem.toString() === menuItemId
-    );
+    // Check if item with exact same customizations already exists in cart
+    const existingItemIndex = cart.items.findIndex(item => {
+      // Check if same menu item
+      if (item.menuItem.toString() !== menuItemId) return false;
+      
+      // Check if customizations match
+      const existingCustom = JSON.stringify(item.customizations || {});
+      const newCustom = JSON.stringify(customizations);
+      return existingCustom === newCustom;
+    });
 
     if (existingItemIndex > -1) {
-      // Update quantity if item exists
-      cart.items[existingItemIndex].quantity = quantity;
+      // Update quantity if item with same customizations exists
+      cart.items[existingItemIndex].quantity += parseInt(quantity);
     } else {
       // Add new item to cart
       cart.items.push({
         menuItem: menuItemId,
-        quantity,
-        price: menuItem.price,
+        quantity: parseInt(quantity),
+        price: totalItemPrice, // Use calculated total item price
         customizations
       });
     }
@@ -112,7 +151,7 @@ exports.addToCart = async (req, res) => {
     });
   } catch (err) {
     console.error("Add to cart error:", err);
-    res.status(500).json({ message: "Failed to add item to cart" });
+    res.status(500).json({ message: "Failed to add item to cart", error: err.message });
   }
 };
 
@@ -246,19 +285,60 @@ exports.updateCartItem = async (req, res) => {
       return res.status(404).json({ message: "Item not found in cart" });
     }
 
-    // Update quantity
-    cart.items[itemIndex].quantity = quantity;
+    // Get the menu item to calculate customization prices
+    const menuItem = await MenuItem.findById(menuItemId);
+    if (!menuItem) {
+      return res.status(404).json({ message: "Menu item not found" });
+    }
+
+    // Calculate total price including base price and customizations
+    let totalItemPrice = menuItem.price;
     
-    // Update customizations if provided
+    // If customizations are being updated, validate and calculate price
     if (customizations) {
+      // Add price for add-ons if any
+      if (customizations.selectedAddOns && customizations.selectedAddOns.length > 0) {
+        // Validate add-ons against menu item's available add-ons
+        const validAddOns = [];
+        
+        for (const selectedAddOn of customizations.selectedAddOns) {
+          const menuAddOn = menuItem.customizationOptions.addOns.find(
+            addOn => addOn.name === selectedAddOn.name
+          );
+          
+          if (menuAddOn) {
+            // Use the price from the menu item's definition
+            validAddOns.push({
+              name: menuAddOn.name,
+              price: menuAddOn.price,
+              isVeg: menuAddOn.isVeg
+            });
+            
+            // Add the add-on price to the total
+            totalItemPrice += menuAddOn.price;
+          }
+        }
+        
+        // Replace selected add-ons with validated ones
+        customizations.selectedAddOns = validAddOns;
+      }
+      
+      // Update the item's customizations
       cart.items[itemIndex].customizations = customizations;
     }
+
+    // Update quantity and price
+    cart.items[itemIndex].quantity = parseInt(quantity);
+    cart.items[itemIndex].price = totalItemPrice; // Use calculated total price
 
     cart.updatedAt = Date.now();
     await cart.save();
 
     await cart.populate('items.menuItem');
     await cart.populate('restaurant', 'name');
+    if (cart.chef) {
+      await cart.populate('chef', 'name');
+    }
 
     res.status(200).json({ 
       message: "Cart item updated",
@@ -266,7 +346,7 @@ exports.updateCartItem = async (req, res) => {
     });
   } catch (err) {
     console.error("Update cart item error:", err);
-    res.status(500).json({ message: "Failed to update cart item" });
+    res.status(500).json({ message: "Failed to update cart item", error: err.message });
   }
 };
 

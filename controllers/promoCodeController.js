@@ -1,39 +1,5 @@
-const express = require('express');
-const { protect } = require('../middlewares/authMiddleware');
-const {
-  placeOrder,
-  getOrderById,
-  getUserOrders,
-  getUserOngoingOrders,
-  getUserPastOrders,
-  updateOrderStatus,
-  cancelOrder,
-  updatePaymentStatus,
-  getOrderStatus
-} = require('../controllers/orderController');
-const promoCodeController = require('../controllers/promoCodeController');
-
-const router = express.Router();
-
-// User routes - require authentication
-router.use(protect);
-router.post('/place', placeOrder);
-router.get('/details/:orderId', getOrderById);
-router.get('/user', getUserOrders);
-router.get('/ongoing', getUserOngoingOrders);
-router.get('/past', getUserPastOrders);
-router.get('/status/:orderId', getOrderStatus);
-router.put('/cancel/:orderId', cancelOrder);
-router.post('/validate-promo', promoCodeController.validatePromoCode);
-
-// Update order status route (admin/restaurant/chef)
-// In production, add middleware to verify admin/restaurant/chef permissions
-router.put('/edit-status/:orderId', updateOrderStatus);
-
-// Payment gateway webhook (public)
-router.post('/payment/webhook', updatePaymentStatus);
-
-module.exports = router;
+const PromoCode = require('../models/promoCodeModel');
+const Order = require('../models/orderModel');
 
 // Validate a promo code
 exports.validatePromoCode = async (req, res) => {
