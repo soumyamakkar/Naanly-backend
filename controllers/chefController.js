@@ -72,17 +72,36 @@ exports.getChefsNearby = async (req, res) => {
     const { lng, lat, distance = 10 } = req.query;
     if (!lng || !lat) return res.status(400).json({ error: 'lng and lat required' });
     
-    const chefs = await Chef.find({
+    // Find all chefs within the user-provided distance
+    const nearbyChefs = await Chef.find({
       isActive: true,
       location: {
-        $near: {
-          $geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
-          $maxDistance: parseFloat(distance) * 1000 // meters
-        }
+      $near: {
+        $geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
+        $maxDistance: parseFloat(distance) * 1000 // meters
+      }
       }
     });
+
+    // Filter chefs whose serviceArea.radius covers the distance from user to chef
+    const userLocation = [parseFloat(lng), parseFloat(lat)];
+    const filteredChefs = nearbyChefs.filter(chef => {
+      if (!chef.location || !chef.serviceArea || !chef.serviceArea.radius) return false;
+      const [chefLng, chefLat] = chef.location.coordinates;
+      // Calculate distance in km using Haversine formula
+      const toRad = x => x * Math.PI / 180;
+      const R = 6371; // Earth radius in km
+      const dLat = toRad(chefLat - userLocation[1]);
+      const dLng = toRad(chefLng - userLocation[0]);
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(toRad(userLocation[1])) * Math.cos(toRad(chefLat)) *
+          Math.sin(dLng/2) * Math.sin(dLng/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      const distanceToChef = R * c;
+      return distanceToChef <= chef.serviceArea.radius;
+    });
     
-    res.json(chefs);
+    res.json(filteredChefs);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

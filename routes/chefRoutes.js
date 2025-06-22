@@ -7,10 +7,7 @@ const {protect}= require('../middlewares/authMiddleware');
 router.use(protect);
 
 // Get all chefs
-router.get('/', chefController.getAllChefs);
 
-// Get chef by ID
-router.get('/:id', chefController.getChefById);
 
 // Get chefs by name
 router.get('/search/name', chefController.getChefsByName);
@@ -20,6 +17,11 @@ router.get('/search/speciality', chefController.getChefsBySpeciality);
 
 // Get chefs nearby
 router.get('/nearby', chefController.getChefsNearby);
+
+router.get('/', chefController.getAllChefs);
+
+// Get chef by ID
+router.get('/:id', chefController.getChefById);
 
 // Get menu for a chef
 router.get('/:id/menu', chefController.getChefMenu);

@@ -10,7 +10,7 @@ const chefSchema = new mongoose.Schema({
     unique: true,
     index: true
   },
-  name: {
+  name: { 
     type: String,
     required: true,
     index: true // for fast name search
