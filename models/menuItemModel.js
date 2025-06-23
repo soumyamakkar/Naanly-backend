@@ -131,6 +131,10 @@ const menuItemSchema = new mongoose.Schema({
       type: Date,
       default: null
     }
+  },
+  photo: {
+    type: String,  // URL to the photo
+    default: ""
   }
 }, {
   timestamps: true

@@ -8,12 +8,38 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configure storage for profile pictures
-const profileStorage = new CloudinaryStorage({
+// Configure storage for menu item photos
+const menuItemPhotoStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'naanly-profile-pictures',
-    allowed_formats: ['jpg', 'jpeg', 'png'],
+    folder: 'naanly/menu-items',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [
+      { width: 800, height: 600, crop: 'limit' },
+      { quality: 'auto' }
+    ]
+  }
+});
+
+// Configure storage for restaurant photos
+const restaurantPhotoStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'naanly/restaurants',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [
+      { width: 1200, height: 800, crop: 'limit' },
+      { quality: 'auto' }
+    ]
+  }
+});
+
+// Configure storage for chef profile pictures
+const chefProfileStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'naanly/chefs/profile',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
     transformation: [
       { width: 500, height: 500, crop: 'limit' },
       { quality: 'auto' }
@@ -21,35 +47,35 @@ const profileStorage = new CloudinaryStorage({
   }
 });
 
-// Multer upload configuration for profile pictures
-const uploadProfilePicture = multer({
-  storage: profileStorage,
-  limits: {
-    fileSize: 1024 * 1024 * 2 // 2MB limit
-  }
-}).single('profilePicture');
-
-// Configure storage for recipe request media
-const recipeMediaStorage = new CloudinaryStorage({
+// Configure storage for chef cover photos
+const chefCoverStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'naanly-recipe-media',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'mp4', 'mov'],
-    resource_type: 'auto'
+    folder: 'naanly/chefs/cover',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [
+      { width: 1200, height: 400, crop: 'limit' },
+      { quality: 'auto' }
+    ]
   }
 });
 
-// Multer upload configuration for recipe media
-const uploadRecipeMedia = multer({
-  storage: recipeMediaStorage,
-  limits: {
-    fileSize: 1024 * 1024 * 50, // 50MB limit for videos
-    files: 5 // Maximum 5 files
-  }
-}).array('media', 5);
-
 module.exports = {
   cloudinary,
-  uploadProfilePicture,
-  uploadRecipeMedia
+  uploadMenuItemPhoto: multer({ 
+    storage: menuItemPhotoStorage,
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+  }),
+  uploadRestaurantPhotos: multer({ 
+    storage: restaurantPhotoStorage,
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+  }),
+  uploadChefProfilePicture: multer({ 
+    storage: chefProfileStorage,
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+  }),
+  uploadChefCoverPhoto: multer({ 
+    storage: chefCoverStorage,
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+  })
 };

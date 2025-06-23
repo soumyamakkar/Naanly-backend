@@ -101,6 +101,10 @@ const chefSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  coverPhoto: {
+    type: String,
+    default: ""
+  },
   kitchenImages: [String],
   location: {
     type: {

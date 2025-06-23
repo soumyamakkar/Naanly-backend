@@ -1,6 +1,5 @@
 const { MenuItem } = require('../models/menuItemModel');
 const mongoose = require('mongoose');
-const Chef = require('../models/chefModel');
 
 // Get menu item by ID
 exports.getMenuItemById = async (req, res) => {

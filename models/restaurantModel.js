@@ -40,6 +40,10 @@ const restaurantSchema = new mongoose.Schema({
   filters: {
     priceRange: [Number],
     tags: [String]
+  },
+  photos: {
+    type: [String],  // Array of photo URLs
+    default: []
   }
 }, {
   timestamps: true
