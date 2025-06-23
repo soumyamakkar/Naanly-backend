@@ -135,6 +135,17 @@ const menuItemSchema = new mongoose.Schema({
   photo: {
     type: String,  // URL to the photo
     default: ""
+  },
+  // Rating information
+  rating: {
+    average: {
+      type: Number,
+      default: 0
+    },
+    count: {
+      type: Number,
+      default: 0
+    }
   }
 }, {
   timestamps: true

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const restaurantController = require('../controllers/restaurantController');
 const authMiddleware = require('../middlewares/authMiddleware');
+const { uploadMenuItemPhoto, uploadRestaurantPhotos } = require('../config/cloudinary'); // Add multer middleware import
 
 // Get all restaurants
 router.get('/', restaurantController.getRestaurants);
@@ -24,13 +25,11 @@ router.get('/:id/menu/filter', restaurantController.getFilteredMenu);
 // Get filters for UI
 router.get('/:id/filters', restaurantController.getRestaurantFilters);
 
-
-
 //admin routes made just for populating the db...NOT
-// Add a new restaurant
-router.post('/', restaurantController.addRestaurant);
+// Add a new restaurant (with photos)
+router.post('/', uploadRestaurantPhotos.array('photos', 5), restaurantController.addRestaurant);
 
-// Add a menu item to a restaurant (embedded menu)
-router.post('/:id/menu', restaurantController.addMenuItem);
+// Add a menu item to a restaurant (with photo)
+router.post('/:id/menu', uploadMenuItemPhoto.single('photo'), restaurantController.addMenuItem);
 
 module.exports = router;

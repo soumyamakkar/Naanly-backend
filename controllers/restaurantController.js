@@ -1,6 +1,7 @@
 const Restaurant = require('../models/restaurantModel');
 const { MenuItem } = require('../models/menuItemModel');
 const mongoose = require('mongoose');
+const { uploadMenuItemPhoto, uploadRestaurantPhotos } = require('../config/cloudinary');
 
 // Get all restaurants
 exports.getRestaurants = async (req, res) => {
@@ -100,9 +101,26 @@ exports.getRestaurantFilters = async (req, res) => {
 };
 
 // Add a new restaurant
+// Use uploadRestaurantPhotos middleware in your route
 exports.addRestaurant = async (req, res) => {
   try {
-    const restaurant = new Restaurant(req.body);
+    let photos = [];
+    if (req.files && req.files.length > 0) {
+      photos = req.files.map(file => file.path);
+    }
+    const restaurantData = { ...req.body };
+    if (photos.length > 0) restaurantData.photos = photos;
+    // Parse JSON fields if sent as text in form-data
+    if (restaurantData.cuisines && typeof restaurantData.cuisines === 'string') {
+      try { restaurantData.cuisines = JSON.parse(restaurantData.cuisines); } catch {}
+    }
+    if (restaurantData.filters && typeof restaurantData.filters === 'string') {
+      try { restaurantData.filters = JSON.parse(restaurantData.filters); } catch {}
+    }
+    if (restaurantData.location && typeof restaurantData.location === 'string') {
+      try { restaurantData.location = JSON.parse(restaurantData.location); } catch {}
+    }
+    const restaurant = new Restaurant(restaurantData);
     await restaurant.save();
     res.status(201).json(restaurant);
   } catch (err) {
@@ -111,11 +129,37 @@ exports.addRestaurant = async (req, res) => {
 };
 
 // Add a menu item to a restaurant (global MenuItem collection)
+// Use uploadMenuItemPhoto middleware in your route
 exports.addMenuItem = async (req, res) => {
   try {
     const { id } = req.params; // restaurantId from URL
-    // Attach restaurantId to the menu item
     const menuItemData = { ...req.body, restaurantId: id };
+    // Parse JSON fields if sent as text in form-data
+    if (menuItemData.keyIngredients && typeof menuItemData.keyIngredients === 'string') {
+      try { menuItemData.keyIngredients = JSON.parse(menuItemData.keyIngredients); } catch {}
+    }
+    if (menuItemData.allergens && typeof menuItemData.allergens === 'string') {
+      try { menuItemData.allergens = JSON.parse(menuItemData.allergens); } catch {}
+    }
+    if (menuItemData.tags && typeof menuItemData.tags === 'string') {
+      try { menuItemData.tags = JSON.parse(menuItemData.tags); } catch {}
+    }
+    if (menuItemData.customizationOptions && typeof menuItemData.customizationOptions === 'string') {
+      try { menuItemData.customizationOptions = JSON.parse(menuItemData.customizationOptions); } catch {}
+    }
+    if (menuItemData.nutritionInfo && typeof menuItemData.nutritionInfo === 'string') {
+      try { menuItemData.nutritionInfo = JSON.parse(menuItemData.nutritionInfo); } catch {}
+    }
+    if (menuItemData.specialOffer && typeof menuItemData.specialOffer === 'string') {
+      try { menuItemData.specialOffer = JSON.parse(menuItemData.specialOffer); } catch {}
+    }
+    if (menuItemData.popularity && typeof menuItemData.popularity === 'string') {
+      try { menuItemData.popularity = JSON.parse(menuItemData.popularity); } catch {}
+    }
+    // If a file is uploaded, set the photo field
+    if (req.file && req.file.path) {
+      menuItemData.photo = req.file.path;
+    }
     const menuItem = new MenuItem(menuItemData);
     await menuItem.save();
     res.status(201).json(menuItem);

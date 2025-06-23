@@ -7,38 +7,33 @@ const mongoose = require('mongoose');
 exports.getTodaysSpecials = async (req, res) => {
   try {
     const { lat, lng, radius = 5 } = req.query; // radius in km
-    
     if (!lat || !lng) {
       return res.status(400).json({ message: "Location coordinates required" });
     }
-    
+    const userLat = parseFloat(lat);
+    const userLng = parseFloat(lng);
     const today = new Date();
-    
-    // First find nearby restaurants
+    // Find nearby restaurants
     const nearbyRestaurants = await Restaurant.find({
       location: {
         $near: {
-          $geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
-          $maxDistance: parseFloat(radius) * 1000 // convert to meters
+          $geometry: { type: 'Point', coordinates: [userLng, userLat] },
+          $maxDistance: parseFloat(radius) * 1000 // meters
         }
       }
-    }).select('_id name');
-    
+    }).select('_id name location');
     // Find nearby chefs
     const nearbyChefs = await Chef.find({
       isActive: true,
       location: {
         $near: {
-          $geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
-          $maxDistance: parseFloat(radius) * 1000 
+          $geometry: { type: 'Point', coordinates: [userLng, userLat] },
+          $maxDistance: parseFloat(radius) * 1000
         }
       }
-    }).select('_id name kitchenName');
-    
-    // Get restaurant IDs and chef IDs
+    }).select('_id name kitchenName location');
     const restaurantIds = nearbyRestaurants.map(r => r._id);
     const chefIds = nearbyChefs.map(c => c._id);
-    
     // Find daily specials from those restaurants and chefs
     const todaySpecials = await MenuItem.find({
       $or: [
@@ -49,11 +44,48 @@ exports.getTodaysSpecials = async (req, res) => {
       'specialOffer.validFrom': { $lte: today },
       'specialOffer.validUntil': { $gte: today }
     })
-    .populate('restaurantId', 'name')
-    .populate('chefId', 'name kitchenName')
-    .limit(15);
-    
-    res.status(200).json({ todaySpecials });
+      .populate('restaurantId', 'name location')
+      .populate('chefId', 'kitchenName location')
+      .limit(15);
+    // Haversine formula
+    function haversine(lat1, lon1, lat2, lon2) {
+      function toRad(x) { return x * Math.PI / 180; }
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+    // Format response
+    const specials = todaySpecials.map(item => {
+      let source = null;
+      let sourceType = null;
+      if (item.restaurantId && item.restaurantId.location) {
+        source = item.restaurantId.location;
+        sourceType = 'restaurant';
+      } else if (item.chefId && item.chefId.location) {
+        source = item.chefId.location;
+        sourceType = 'chef';
+      }
+      let distance = null;
+      if (source && source.coordinates) {
+        distance = haversine(userLat, userLng, source.coordinates[1], source.coordinates[0]);
+      }
+      return {
+        menuItemId: item._id,
+        name: item.name,
+        kitchenName: item.chefId && item.chefId.kitchenName ? item.chefId.kitchenName : null,
+        preparationTime: item.preparationTime,
+        isVeg: item.isVeg,
+        distance: distance !== null ? Number(distance.toFixed(2)) : null, // in km
+        nutritionInfo: item.nutritionInfo || null,
+        rating: item.rating || { average: 0, count: 0 }
+      };
+    });
+    res.status(200).json({ todaySpecials: specials });
   } catch (err) {
     console.error("Get today's specials error:", err);
     res.status(500).json({ message: "Failed to fetch today's specials" });
@@ -143,11 +175,53 @@ exports.getPopularDishes = async (req, res) => {
     
     // Populate restaurant/chef details
     const populatedDishes = await MenuItem.populate(popularDishes, [
-      { path: 'restaurantId', select: 'name' },
-      { path: 'chefId', select: 'name kitchenName' }
+      { path: 'restaurantId', select: 'name location' },
+      { path: 'chefId', select: 'name kitchenName location' }
     ]);
     
-    res.status(200).json({ popularDishes: populatedDishes });
+    // Haversine formula
+    function haversine(lat1, lon1, lat2, lon2) {
+      function toRad(x) { return x * Math.PI / 180; }
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+    // Format response
+    const dishes = populatedDishes.map(item => {
+      let sourceName = null;
+      let source = null;
+      if (item.restaurantId && item.restaurantId.name) {
+        sourceName = item.restaurantId.name;
+        if (item.restaurantId.location && item.restaurantId.location.coordinates) {
+          source = item.restaurantId.location.coordinates;
+        }
+      } else if (item.chefId && item.chefId.kitchenName) {
+        sourceName = item.chefId.kitchenName;
+        if (item.chefId.location && item.chefId.location.coordinates) {
+          source = item.chefId.location.coordinates;
+        }
+      }
+      let distance = null;
+      if (source && Array.isArray(source)) {
+        distance = haversine(parseFloat(lat), parseFloat(lng), source[1], source[0]);
+      }
+      return {
+        menuItemId: item._id,
+        name: item.name,
+        sourceName,
+        preparationTime: item.preparationTime,
+        isVeg: item.isVeg,
+        price: item.price,
+        distance: distance !== null ? Number(distance.toFixed(2)) : null, // in km
+        rating: item.rating || { average: 0, count: 0 }
+      };
+    });
+    res.status(200).json({ popularDishes: dishes });
   } catch (err) {
     console.error("Get popular dishes error:", err);
     res.status(500).json({ message: "Failed to fetch popular dishes" });
@@ -177,9 +251,38 @@ exports.getTopHomeKitchens = async (req, res) => {
     })
     .sort({ rating: -1 }) // Sort by highest rating first
     .limit(parseInt(limit))
-    .select('name kitchenName profilePicture location.address rating totalRatings cuisines specialities');
+    .select('name kitchenName bio responseTime profilePicture location rating totalRatings cuisines specialities isVegOnly');
     
-    res.status(200).json({ topKitchens });
+    // Haversine formula
+    function haversine(lat1, lon1, lat2, lon2) {
+      function toRad(x) { return x * Math.PI / 180; }
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+    // Format response
+    const kitchens = topKitchens.map(chef => {
+      let distance = null;
+      if (chef.location && chef.location.coordinates) {
+        distance = haversine(parseFloat(lat), parseFloat(lng), chef.location.coordinates[1], chef.location.coordinates[0]);
+      }
+      return {
+        chefId: chef._id,
+        kitchenName: chef.kitchenName,
+        chefName: chef.name,
+        bio: chef.bio || null,
+        rating: chef.rating,
+        isVeg: chef.isVegOnly,
+        distance: distance !== null ? Number(distance.toFixed(2)) : null, // in km
+        responseTime: chef.responseTime || null
+      };
+    });
+    res.status(200).json({ topKitchens: kitchens });
   } catch (err) {
     console.error("Get top home kitchens error:", err);
     res.status(500).json({ message: "Failed to fetch top home kitchens" });
@@ -230,23 +333,47 @@ exports.getPopularChefs = async (req, res) => {
         $project: {
           name: 1,
           kitchenName: 1,
-          profilePicture: 1,
+          bio: 1,
           rating: 1,
-          totalRatings: 1,
-          distance: 1, // Distance in meters
-          cuisines: 1,
-          specialities: 1,
-          "location.address": 1,
-          popularityScore: 1
+          location: 1,
+          responseTime: 1,
+          isVegOnly: 1
         } 
       }
     ]);
-    
+
+    // Haversine formula
+    function haversine(lat1, lon1, lat2, lon2) {
+      function toRad(x) { return x * Math.PI / 180; }
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    const userLat = parseFloat(lat);
+    const userLng = parseFloat(lng);
+
     res.status(200).json({ 
-      popularChefs: popularChefs.map(chef => ({
-        ...chef,
-        distance: (chef.distance / 1000).toFixed(1) // Convert to km for display
-      })) 
+      popularChefs: popularChefs.map(chef => {
+        let distance = null;
+        if (chef.location && chef.location.coordinates) {
+          distance = haversine(userLat, userLng, chef.location.coordinates[1], chef.location.coordinates[0]);
+        }
+        return {
+          chefName: chef.name,
+          kitchenName: chef.kitchenName,
+          bio: chef.bio || null,
+          rating: chef.rating,
+          distance: distance !== null ? Number(distance.toFixed(2)) : null, // in km
+          preparationTime: chef.responseTime || null,
+          isVeg: chef.isVegOnly || false
+        };
+      })
     });
   } catch (err) {
     console.error("Get popular chefs error:", err);

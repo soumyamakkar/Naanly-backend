@@ -198,7 +198,51 @@ exports.checkChefAvailability = async (req, res) => {
 // Add a new chef (admin only)
 exports.addChef = async (req, res) => {
   try {
-    const chef = new Chef(req.body);
+    const chefData = { ...req.body };
+    // If a file is uploaded, set the profilePicture field
+    if (req.files && req.files.profilePicture && req.files.profilePicture[0] && req.files.profilePicture[0].path) {
+      chefData.profilePicture = req.files.profilePicture[0].path;
+    } else if (req.file && req.file.fieldname === 'profilePicture' && req.file.path) {
+      chefData.profilePicture = req.file.path;
+    }
+    // If a file is uploaded, set the coverPhoto field
+    if (req.files && req.files.coverPhoto && req.files.coverPhoto[0] && req.files.coverPhoto[0].path) {
+      chefData.coverPhoto = req.files.coverPhoto[0].path;
+    } else if (req.file && req.file.fieldname === 'coverPhoto' && req.file.path) {
+      chefData.coverPhoto = req.file.path;
+    }
+    // Parse JSON fields if sent as text in form-data
+    if (chefData.specialities && typeof chefData.specialities === 'string') {
+      try { chefData.specialities = JSON.parse(chefData.specialities); } catch {}
+    }
+    if (chefData.cuisines && typeof chefData.cuisines === 'string') {
+      try { chefData.cuisines = JSON.parse(chefData.cuisines); } catch {}
+    }
+    if (chefData.filters && typeof chefData.filters === 'string') {
+      try { chefData.filters = JSON.parse(chefData.filters); } catch {}
+    }
+    if (chefData.kitchenImages && typeof chefData.kitchenImages === 'string') {
+      try { chefData.kitchenImages = JSON.parse(chefData.kitchenImages); } catch {}
+    }
+    if (chefData.location && typeof chefData.location === 'string') {
+      try { chefData.location = JSON.parse(chefData.location); } catch {}
+    }
+    if (chefData.availability && typeof chefData.availability === 'string') {
+      try { chefData.availability = JSON.parse(chefData.availability); } catch {}
+    }
+    if (chefData.serviceArea && typeof chefData.serviceArea === 'string') {
+      try { chefData.serviceArea = JSON.parse(chefData.serviceArea); } catch {}
+    }
+    if (chefData.requestSettings && typeof chefData.requestSettings === 'string') {
+      try { chefData.requestSettings = JSON.parse(chefData.requestSettings); } catch {}
+    }
+    if (chefData.contactInfo && typeof chefData.contactInfo === 'string') {
+      try { chefData.contactInfo = JSON.parse(chefData.contactInfo); } catch {}
+    }
+    if (chefData.socialMedia && typeof chefData.socialMedia === 'string') {
+      try { chefData.socialMedia = JSON.parse(chefData.socialMedia); } catch {}
+    }
+    const chef = new Chef(chefData);
     await chef.save();
     res.status(201).json(chef);
   } catch (err) {
@@ -210,17 +254,40 @@ exports.addChef = async (req, res) => {
 exports.addChefMenuItem = async (req, res) => {
   try {
     const { id } = req.params; // chefId from URL
-    
     // Attach chefId to the menu item
-    const menuItemData = { 
-      ...req.body, 
+    const menuItemData = {
+      ...req.body,
       chefId: id,
       restaurantId: null // Ensure this isn't a restaurant item
     };
-    
+    // Parse JSON fields if sent as text in form-data
+    if (menuItemData.keyIngredients && typeof menuItemData.keyIngredients === 'string') {
+      try { menuItemData.keyIngredients = JSON.parse(menuItemData.keyIngredients); } catch {}
+    }
+    if (menuItemData.allergens && typeof menuItemData.allergens === 'string') {
+      try { menuItemData.allergens = JSON.parse(menuItemData.allergens); } catch {}
+    }
+    if (menuItemData.tags && typeof menuItemData.tags === 'string') {
+      try { menuItemData.tags = JSON.parse(menuItemData.tags); } catch {}
+    }
+    if (menuItemData.customizationOptions && typeof menuItemData.customizationOptions === 'string') {
+      try { menuItemData.customizationOptions = JSON.parse(menuItemData.customizationOptions); } catch {}
+    }
+    if (menuItemData.nutritionInfo && typeof menuItemData.nutritionInfo === 'string') {
+      try { menuItemData.nutritionInfo = JSON.parse(menuItemData.nutritionInfo); } catch {}
+    }
+    if (menuItemData.specialOffer && typeof menuItemData.specialOffer === 'string') {
+      try { menuItemData.specialOffer = JSON.parse(menuItemData.specialOffer); } catch {}
+    }
+    if (menuItemData.popularity && typeof menuItemData.popularity === 'string') {
+      try { menuItemData.popularity = JSON.parse(menuItemData.popularity); } catch {}
+    }
+    // If a file is uploaded, set the photo field
+    if (req.file && req.file.path) {
+      menuItemData.photo = req.file.path;
+    }
     const menuItem = new MenuItem(menuItemData);
     await menuItem.save();
-    
     res.status(201).json(menuItem);
   } catch (err) {
     res.status(400).json({ error: err.message });

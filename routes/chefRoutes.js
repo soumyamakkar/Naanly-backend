@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const chefController = require('../controllers/chefController');
 const {protect}= require('../middlewares/authMiddleware');
+const { uploadChefProfilePicture, uploadChefCoverPhoto, uploadMenuItemPhoto } = require('../config/cloudinary'); // Import cover photo middleware
 
 
 router.use(protect);
@@ -39,7 +40,14 @@ router.get('/:id/filters', chefController.getChefFilters);
 router.get('/:id/availability', chefController.checkChefAvailability);
 
 // Admin routes - will be protected in production
-router.post('/add', chefController.addChef);
-router.post('/:id/menu', chefController.addChefMenuItem);
+router.post(
+  '/add',
+  uploadChefProfilePicture.fields([
+    { name: 'profilePicture', maxCount: 1 },
+    { name: 'coverPhoto', maxCount: 1 }
+  ]),
+  chefController.addChef
+);
+router.post('/:id/menu', uploadMenuItemPhoto.single('photo'), chefController.addChefMenuItem);
 
 module.exports = router;

@@ -15,4 +15,7 @@ router.get('/:id', menuItemController.getMenuItemById);
 // Get similar menu items
 router.get('/:id/similar', menuItemController.getSimilarMenuItems);
 
+// Rate a menu item
+router.post('/rate', menuItemController.rateMenuItem);
+
 module.exports = router;
