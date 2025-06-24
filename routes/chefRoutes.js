@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const chefController = require('../controllers/chefController');
 const {protect}= require('../middlewares/authMiddleware');
-const { uploadChefProfilePicture, uploadChefCoverPhoto, uploadMenuItemPhoto } = require('../config/cloudinary'); // Import cover photo middleware
+const { uploadChefProfilePicture, uploadChefCoverPhoto, uploadMenuItemPhoto, uploadMealBoxPhoto } = require('../config/cloudinary'); // Import cover photo middleware
 
 
 router.use(protect);
@@ -49,5 +49,11 @@ router.post(
   chefController.addChef
 );
 router.post('/:id/menu', uploadMenuItemPhoto.single('photo'), chefController.addChefMenuItem);
+
+// Get all meal boxes for a chef
+router.get('/:id/meal-boxes', chefController.getChefMealBoxes);
+
+// Add a new meal box
+router.post('/:id/meal-boxes', uploadMealBoxPhoto.single('photo'), chefController.addMealBox);
 
 module.exports = router;

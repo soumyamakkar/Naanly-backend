@@ -1,5 +1,6 @@
 const Chef = require('../models/chefModel');
 const { MenuItem } = require('../models/menuItemModel');
+const MealBox = require('../models/mealBoxModel');
 const mongoose = require('mongoose');
 
 // Get all chefs
@@ -291,5 +292,88 @@ exports.addChefMenuItem = async (req, res) => {
     res.status(201).json(menuItem);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+};
+
+// Create a new meal box
+exports.addMealBox = async (req, res) => {
+  try {
+    const { id: chefId } = req.params; // Chef ID from URL
+    
+    // Check if chef exists
+    const chef = await Chef.findById(chefId);
+    if (!chef) {
+      return res.status(404).json({ message: "Chef not found" });
+    }
+    
+    // Parse the request body
+    let mealBoxData = {
+      ...req.body,
+      chefId
+    };
+    
+    // Handle nested JSON objects if they're sent as strings
+    if (mealBoxData.dishes && typeof mealBoxData.dishes === 'string') {
+      try { mealBoxData.dishes = JSON.parse(mealBoxData.dishes); } catch {}
+    }
+    
+    if (mealBoxData.customizationOptions && typeof mealBoxData.customizationOptions === 'string') {
+      try { mealBoxData.customizationOptions = JSON.parse(mealBoxData.customizationOptions); } catch {}
+    }
+    
+    if (mealBoxData.tags && typeof mealBoxData.tags === 'string') {
+      try { mealBoxData.tags = JSON.parse(mealBoxData.tags); } catch {}
+    }
+    
+    // If a photo was uploaded
+    if (req.file && req.file.path) {
+      mealBoxData.photo = req.file.path;
+    }
+    
+    // Validate that all menu items exist and belong to this chef
+    if (mealBoxData.dishes && Array.isArray(mealBoxData.dishes)) {
+      const menuItemIds = mealBoxData.dishes.map(dish => dish.menuItem);
+      const menuItems = await MenuItem.find({
+        _id: { $in: menuItemIds },
+        chefId
+      });
+      
+      if (menuItems.length !== menuItemIds.length) {
+        return res.status(400).json({ 
+          message: "One or more menu items don't exist or don't belong to this chef"
+        });
+      }
+      
+      // Determine if the meal box is vegetarian based on the menu items
+      const allVeg = menuItems.every(item => item.isVeg === true);
+      mealBoxData.isVeg = allVeg;
+    }
+    
+    const mealBox = new MealBox(mealBoxData);
+    await mealBox.save();
+    
+    // Populate the dishes with full menu item details for the response
+    const populatedMealBox = await MealBox.findById(mealBox._id)
+      .populate('dishes.menuItem', 'name description price isVeg photo');
+    
+    res.status(201).json(populatedMealBox);
+  } catch (err) {
+    console.error("Error creating meal box:", err);
+    res.status(400).json({ message: "Failed to create meal box", error: err.message });
+  }
+};
+
+// Get all meal boxes for a chef
+exports.getChefMealBoxes = async (req, res) => {
+  try {
+    const { id: chefId } = req.params;
+    
+    const mealBoxes = await MealBox.find({ chefId, isActive: true })
+      .populate('dishes.menuItem', 'name description price isVeg photo');
+    
+    res.status(200).json(mealBoxes);
+  } catch (err) {
+    console.error("Error fetching chef's meal boxes:", err);
+    res.status(500).json({ message: "Failed to fetch meal boxes", error: err.message });
   }
 };

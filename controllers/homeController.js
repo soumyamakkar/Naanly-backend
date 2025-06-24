@@ -1,18 +1,30 @@
 const Chef = require('../models/chefModel');
 const Restaurant = require('../models/restaurantModel');
 const { MenuItem } = require('../models/menuItemModel');
+const User = require('../models/userModel');
+const MealBox = require('../models/mealBoxModel');
 const mongoose = require('mongoose');
 
 // Get Today's Specials
-exports.getTodaysSpecials = async (req, res) => {
+exports.getMenuItems = async (req, res) => {
   try {
-    const { lat, lng, radius = 5 } = req.query; // radius in km
+    const userId = req.user?.id;
+    const { 
+      lat, 
+      lng, 
+      radius = 5,
+      filter, // "today-special", "pure-veg", "high-protein", "salads", "thali", "popular"
+      limit = 15
+    } = req.query;
+    
     if (!lat || !lng) {
       return res.status(400).json({ message: "Location coordinates required" });
     }
+    
     const userLat = parseFloat(lat);
     const userLng = parseFloat(lng);
     const today = new Date();
+    
     // Find nearby restaurants
     const nearbyRestaurants = await Restaurant.find({
       location: {
@@ -21,7 +33,8 @@ exports.getTodaysSpecials = async (req, res) => {
           $maxDistance: parseFloat(radius) * 1000 // meters
         }
       }
-    }).select('_id name location');
+    }).select('_id name photos');
+    
     // Find nearby chefs
     const nearbyChefs = await Chef.find({
       isActive: true,
@@ -31,23 +44,167 @@ exports.getTodaysSpecials = async (req, res) => {
           $maxDistance: parseFloat(radius) * 1000
         }
       }
-    }).select('_id name kitchenName location');
+    }).select('_id name kitchenName profilePicture');
+    
     const restaurantIds = nearbyRestaurants.map(r => r._id);
     const chefIds = nearbyChefs.map(c => c._id);
-    // Find daily specials from those restaurants and chefs
-    const todaySpecials = await MenuItem.find({
+    
+    // Base query conditions - always applied
+    const baseQuery = {
       $or: [
         { restaurantId: { $in: restaurantIds } },
         { chefId: { $in: chefIds } }
-      ],
-      'specialOffer.isSpecial': true,
-      'specialOffer.validFrom': { $lte: today },
-      'specialOffer.validUntil': { $gte: today }
-    })
-      .populate('restaurantId', 'name location')
-      .populate('chefId', 'kitchenName location')
-      .limit(15);
-    // Haversine formula
+      ]
+    };
+    
+    // Apply filter-specific conditions
+    let filterQuery = { ...baseQuery };
+    let sortOptions = {};
+    let responseKey = 'menuItems';
+    
+    if (filter) {
+      switch(filter) {
+        case 'today-special':
+          filterQuery = {
+            ...baseQuery,
+            'specialOffer.isSpecial': true,
+            'specialOffer.validFrom': { $lte: today },
+            'specialOffer.validUntil': { $gte: today }
+          };
+          responseKey = 'todaySpecials';
+          break;
+          
+        case 'pure-veg':
+          filterQuery = {
+            ...baseQuery,
+            isVeg: true
+          };
+          responseKey = 'pureVegItems';
+          break;
+          
+        case 'high-protein':
+          filterQuery = {
+            ...baseQuery,
+            "nutritionInfo.protein": { $gt: 15 } // Items with more than 15g protein
+          };
+          sortOptions = { "nutritionInfo.protein": -1 }; // Highest protein first
+          responseKey = 'highProteinItems';
+          break;
+          
+        case 'salads':
+          filterQuery = {
+            ...baseQuery,
+            tags: { $in: [/salad/i] } // Case-insensitive search for salad
+          };
+          responseKey = 'saladItems';
+          break;
+          
+        case 'thali':
+          filterQuery = {
+            ...baseQuery,
+            tags: { $in: [/thali/i] } // Case-insensitive search for thali
+          };
+          responseKey = 'thaliItems';
+          break;
+      }
+    }
+    
+    let menuItems;
+    
+    // Special handling for 'popular' filter as it requires aggregation
+    if (filter === 'popular') {
+      responseKey = 'popularDishes';
+      
+      // Get popular dishes using aggregation
+      const popularDishes = await MenuItem.aggregate([
+        {
+          $match: baseQuery
+        },
+        {
+          $lookup: {
+            from: "ratings",
+            localField: "_id",
+            foreignField: "menuItemId",
+            as: "ratings"
+          }
+        },
+        {
+          $addFields: {
+            averageRating: { $avg: "$ratings.rating" },
+            totalRatings: { $size: "$ratings" },
+            popularityScore: {
+              $add: [
+                { $multiply: [{ $ifNull: ["$popularity.orderCount", 0] }, 1] },
+                { $multiply: [{ $ifNull: [{ $avg: "$ratings.rating" }, 0] }, 10] },
+                {
+                  $cond: {
+                    if: { $gt: ["$popularity.lastOrderedAt", null] },
+                    then: {
+                      $divide: [
+                        { $subtract: [new Date(), "$popularity.lastOrderedAt"] },
+                        86400000 // milliseconds in a day
+                      ]
+                    },
+                    else: 0
+                  }
+                }
+              ]
+            }
+          }
+        },
+        { $sort: { popularityScore: -1 } },
+        { $limit: parseInt(limit) },
+        {
+          $project: {
+            _id: 1,
+            name: 1,
+            isVeg: 1,
+            price: 1,
+            photo: 1,
+            preparationTime: 1,
+            nutritionInfo: 1,
+            restaurantId: 1,
+            chefId: 1,
+            averageRating: 1,
+            totalRatings: 1
+          }
+        }
+      ]);
+      
+      // Populate restaurant/chef details
+      menuItems = await MenuItem.populate(popularDishes, [
+        { path: 'restaurantId', select: 'name location' },
+        { path: 'chefId', select: 'name kitchenName location' }
+      ]);
+    } else {
+      // For all other filters, use regular find
+      menuItems = await MenuItem.find(filterQuery)
+        .sort(sortOptions)
+        .populate('restaurantId', 'name location')
+        .populate('chefId', 'name kitchenName location')
+        .limit(parseInt(limit));
+    }
+    
+    // Get user favorites if userId is provided
+    let userFavorites = [];
+    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+      try {
+        const user = await User.findById(userId);
+        
+        if (user && user.favorites && user.favorites.length > 0) {
+          userFavorites = user.favorites.map(fav => {
+            if (fav.menuItem) {
+              return fav.menuItem.toString();
+            }
+            return null;
+          }).filter(id => id !== null);
+        }
+      } catch (favError) {
+        console.error("Error fetching user favorites:", favError);
+      }
+    }
+    
+    // Haversine formula for distance calculation
     function haversine(lat1, lon1, lat2, lon2) {
       function toRad(x) { return x * Math.PI / 180; }
       const R = 6371; // km
@@ -59,42 +216,60 @@ exports.getTodaysSpecials = async (req, res) => {
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     }
-    // Format response
-    const specials = todaySpecials.map(item => {
-      let source = null;
-      let sourceType = null;
-      if (item.restaurantId && item.restaurantId.location) {
-        source = item.restaurantId.location;
-        sourceType = 'restaurant';
-      } else if (item.chefId && item.chefId.location) {
-        source = item.chefId.location;
-        sourceType = 'chef';
-      }
+    
+    // Format response with only the requested fields
+    const formattedItems = menuItems.map(item => {
       let distance = null;
-      if (source && source.coordinates) {
-        distance = haversine(userLat, userLng, source.coordinates[1], source.coordinates[0]);
+      let kitchenName = null;
+      let sourceCoordinates = null;
+      
+      if (item.restaurantId && item.restaurantId.location) {
+        kitchenName = item.restaurantId.name;
+        sourceCoordinates = item.restaurantId.location.coordinates;
+      } else if (item.chefId) {
+        kitchenName = item.chefId.kitchenName;
+        sourceCoordinates = item.chefId.location?.coordinates;
       }
+      
+      if (sourceCoordinates) {
+        distance = haversine(userLat, userLng, sourceCoordinates[1], sourceCoordinates[0]);
+      }
+      
       return {
         menuItemId: item._id,
         name: item.name,
-        kitchenName: item.chefId && item.chefId.kitchenName ? item.chefId.kitchenName : null,
-        preparationTime: item.preparationTime,
+        kitchenName,
+        preparationTime: item.preparationTime || 30,
         isVeg: item.isVeg,
-        distance: distance !== null ? Number(distance.toFixed(2)) : null, // in km
-        nutritionInfo: item.nutritionInfo || null,
-        rating: item.rating || { average: 0, count: 0 }
+        distance: distance !== null ? Number(distance.toFixed(1)) : null,
+        nutritionInfo: item.nutritionInfo || {
+          calories: 0,
+          protein: 0,
+          carbs: 0,
+          fat: 0,
+          fiber: 0,
+          servingSize: "1 serving"
+        },
+        rating: {
+          average: filter === 'popular' ? item.averageRating || 0 : item.rating?.average || 0,
+          count: filter === 'popular' ? item.totalRatings || 0 : item.rating?.count || 0
+        },
+        photo: item.photo || "",
+        isFavorite: userFavorites.includes(item._id.toString())
       };
     });
-    res.status(200).json({ todaySpecials: specials });
+    
+    res.status(200).json({ [responseKey]: formattedItems });
   } catch (err) {
-    console.error("Get today's specials error:", err);
-    res.status(500).json({ message: "Failed to fetch today's specials" });
+    console.error(`Get menu items error (${req.query.filter || 'all'}):`, err);
+    res.status(500).json({ message: "Failed to fetch menu items" });
   }
 };
 
 // Get Popular Dishes
 exports.getPopularDishes = async (req, res) => {
   try {
+    const userId = req.user?.id;
     const { lat, lng, radius = 5 } = req.query; // radius in km
     
     if (!lat || !lng) {
@@ -150,8 +325,8 @@ exports.getPopularDishes = async (req, res) => {
           // Create a popularity score combining order count and ratings
           popularityScore: {
             $add: [
-              { $multiply: ["$popularity.orderCount", 1] },  // Weight for order count
-              { $multiply: [{ $avg: "$ratings.rating" }, 10] }, // Weight for ratings
+              { $multiply: [{ $ifNull: ["$popularity.orderCount", 0] }, 1] },  // Weight for order count
+              { $multiply: [{ $ifNull: [{ $avg: "$ratings.rating" }, 0] }, 10] }, // Weight for ratings
               // Recency factor: more recent = higher score
               {
                 $cond: {
@@ -170,7 +345,22 @@ exports.getPopularDishes = async (req, res) => {
         }
       },
       { $sort: { popularityScore: -1 } },
-      { $limit: 15 }
+      { $limit: 15 },
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          isVeg: 1,
+          price: 1,
+          photo: 1,
+          preparationTime: 1,
+          nutritionInfo: 1,
+          restaurantId: 1,
+          chefId: 1,
+          averageRating: 1,
+          totalRatings: 1
+        }
+      }
     ]);
     
     // Populate restaurant/chef details
@@ -178,6 +368,25 @@ exports.getPopularDishes = async (req, res) => {
       { path: 'restaurantId', select: 'name location' },
       { path: 'chefId', select: 'name kitchenName location' }
     ]);
+    
+    // Get user favorites if userId is provided
+    let userFavorites = [];
+    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+      try {
+        const user = await User.findById(userId);
+        
+        if (user && user.favorites && user.favorites.length > 0) {
+          userFavorites = user.favorites.map(fav => {
+            if (fav.menuItem) {
+              return fav.menuItem.toString();
+            }
+            return null;
+          }).filter(id => id !== null);
+        }
+      } catch (favError) {
+        console.error("Error fetching user favorites:", favError);
+      }
+    }
     
     // Haversine formula
     function haversine(lat1, lon1, lat2, lon2) {
@@ -191,36 +400,49 @@ exports.getPopularDishes = async (req, res) => {
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     }
-    // Format response
+    
+    // Format response to match getTodaysSpecials
     const dishes = populatedDishes.map(item => {
-      let sourceName = null;
-      let source = null;
-      if (item.restaurantId && item.restaurantId.name) {
-        sourceName = item.restaurantId.name;
-        if (item.restaurantId.location && item.restaurantId.location.coordinates) {
-          source = item.restaurantId.location.coordinates;
-        }
-      } else if (item.chefId && item.chefId.kitchenName) {
-        sourceName = item.chefId.kitchenName;
-        if (item.chefId.location && item.chefId.location.coordinates) {
-          source = item.chefId.location.coordinates;
-        }
-      }
       let distance = null;
-      if (source && Array.isArray(source)) {
-        distance = haversine(parseFloat(lat), parseFloat(lng), source[1], source[0]);
+      let kitchenName = null;
+      let sourceCoordinates = null;
+      
+      if (item.restaurantId && item.restaurantId.location) {
+        kitchenName = item.restaurantId.name;
+        sourceCoordinates = item.restaurantId.location.coordinates;
+      } else if (item.chefId) {
+        kitchenName = item.chefId.kitchenName;
+        sourceCoordinates = item.chefId.location?.coordinates;
       }
+      
+      if (sourceCoordinates) {
+        distance = haversine(parseFloat(lat), parseFloat(lng), sourceCoordinates[1], sourceCoordinates[0]);
+      }
+      
       return {
         menuItemId: item._id,
         name: item.name,
-        sourceName,
-        preparationTime: item.preparationTime,
+        kitchenName,
+        preparationTime: item.preparationTime || 30,
         isVeg: item.isVeg,
-        price: item.price,
-        distance: distance !== null ? Number(distance.toFixed(2)) : null, // in km
-        rating: item.rating || { average: 0, count: 0 }
+        distance: distance !== null ? Number(distance.toFixed(1)) : null, // in km, rounded to 1 decimal
+        nutritionInfo: item.nutritionInfo || {
+          calories: 0,
+          protein: 0,
+          carbs: 0,
+          fat: 0,
+          fiber: 0,
+          servingSize: "1 serving"
+        },
+        rating: {
+          average: item.averageRating || 0,
+          count: item.totalRatings || 0
+        },
+        photo: item.photo || "",
+        isFavorite: userFavorites.includes(item._id.toString())
       };
     });
+    
     res.status(200).json({ popularDishes: dishes });
   } catch (err) {
     console.error("Get popular dishes error:", err);
@@ -231,6 +453,7 @@ exports.getPopularDishes = async (req, res) => {
 // Get Top Home Kitchens
 exports.getTopHomeKitchens = async (req, res) => {
   try {
+    const userId = req.user?.id;
     const { lat, lng, radius = 5, limit = 10 } = req.query; // radius in km
     
     if (!lat || !lng) {
@@ -251,8 +474,23 @@ exports.getTopHomeKitchens = async (req, res) => {
     })
     .sort({ rating: -1 }) // Sort by highest rating first
     .limit(parseInt(limit))
-    .select('name kitchenName bio responseTime profilePicture location rating totalRatings cuisines specialities isVegOnly');
+    .select('name kitchenName bio responseTime profilePicture coverPhoto location rating totalRatings isVegOnly');
     
+    // Get user favorite chefs if userId is provided
+    let userFavoriteChefs = [];
+    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+      try {
+        const user = await User.findById(userId)
+          .select('favoriteChefs');
+        
+        if (user && user.favoriteChefs && user.favoriteChefs.length > 0) {
+          userFavoriteChefs = user.favoriteChefs.map(chefId => chefId.toString());
+        }
+      } catch (favError) {
+        console.error("Error fetching user favorite chefs:", favError);
+      }
+    }
+
     // Haversine formula
     function haversine(lat1, lon1, lat2, lon2) {
       function toRad(x) { return x * Math.PI / 180; }
@@ -265,7 +503,8 @@ exports.getTopHomeKitchens = async (req, res) => {
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     }
-    // Format response
+    
+    // Format response with requested fields
     const kitchens = topKitchens.map(chef => {
       let distance = null;
       if (chef.location && chef.location.coordinates) {
@@ -275,11 +514,17 @@ exports.getTopHomeKitchens = async (req, res) => {
         chefId: chef._id,
         kitchenName: chef.kitchenName,
         chefName: chef.name,
-        bio: chef.bio || null,
-        rating: chef.rating,
-        isVeg: chef.isVegOnly,
-        distance: distance !== null ? Number(distance.toFixed(2)) : null, // in km
-        responseTime: chef.responseTime || null
+        description: chef.bio || null,
+        rating: {
+          average: chef.rating || 0,
+          count: chef.totalRatings || 0
+        },
+        isVeg: chef.isVegOnly || false,
+        profilePicture: chef.profilePicture || "",
+        coverPhoto: chef.coverPhoto || "",
+        distance: distance !== null ? Number(distance.toFixed(1)) : null, // in km
+        preparationTime: chef.responseTime || 30,
+        isFavorite: userFavoriteChefs.includes(chef._id.toString())
       };
     });
     res.status(200).json({ topKitchens: kitchens });
@@ -292,6 +537,7 @@ exports.getTopHomeKitchens = async (req, res) => {
 // Get Popular Chefs
 exports.getPopularChefs = async (req, res) => {
   try {
+    const userId = req.user?.id;
     const { lat, lng, radius = 5, limit = 10 } = req.query;
     
     if (!lat || !lng) {
@@ -321,8 +567,8 @@ exports.getPopularChefs = async (req, res) => {
           popularityScore: {
             $add: [
               { $multiply: ["$rating", 20] }, // Rating weight
-              { $multiply: ["$sales.totalOrders", 0.5] }, // Orders weight
-              { $divide: ["$sales.totalRevenue", 100] } // Revenue weight (÷100 to normalize)
+              { $multiply: [{ $ifNull: ["$sales.totalOrders", 0] }, 0.5] }, // Orders weight
+              { $divide: [{ $ifNull: ["$sales.totalRevenue", 0] }, 100] } // Revenue weight (÷100 to normalize)
             ]
           }
         }
@@ -331,18 +577,117 @@ exports.getPopularChefs = async (req, res) => {
       { $limit: parseInt(limit) },
       { 
         $project: {
+          _id: 1,
           name: 1,
           kitchenName: 1,
           bio: 1,
           rating: 1,
+          totalRatings: 1,
           location: 1,
           responseTime: 1,
-          isVegOnly: 1
+          isVegOnly: 1,
+          profilePicture: 1,
+          coverPhoto: 1,
+          distance: 1
         } 
       }
     ]);
+    
+    // Get user favorite chefs if userId is provided
+    let userFavoriteChefs = [];
+    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+      try {
+        const user = await User.findById(userId)
+          .select('favoriteChefs');
+        
+        if (user && user.favoriteChefs && user.favoriteChefs.length > 0) {
+          userFavoriteChefs = user.favoriteChefs.map(chefId => chefId.toString());
+        }
+      } catch (favError) {
+        console.error("Error fetching user favorite chefs:", favError);
+      }
+    }
 
-    // Haversine formula
+    // Format response with requested fields
+    const formattedChefs = popularChefs.map(chef => {
+      return {
+        chefId: chef._id,
+        kitchenName: chef.kitchenName,
+        chefName: chef.name,
+        description: chef.bio || null,
+        rating: {
+          average: chef.rating || 0,
+          count: chef.totalRatings || 0
+        },
+        isVeg: chef.isVegOnly || false,
+        profilePicture: chef.profilePicture || "",
+        coverPhoto: chef.coverPhoto || "",
+        distance: chef.distance ? Number((chef.distance / 1000).toFixed(1)) : null, // Convert meters to km
+        preparationTime: chef.responseTime || 30,
+        isFavorite: userFavoriteChefs.includes(chef._id.toString())
+      };
+    });
+
+    res.status(200).json({ 
+      popularChefs: formattedChefs
+    });
+  } catch (err) {
+    console.error("Get popular chefs error:", err);
+    res.status(500).json({ message: "Failed to fetch popular chefs" });
+  }
+};
+
+// Get meal boxes for you
+exports.getMealBoxesForYou = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { lat, lng, radius = 5, limit = 20 } = req.query;
+    
+    if (!lat || !lng) {
+      return res.status(400).json({ message: "Location coordinates required" });
+    }
+    
+    const userLat = parseFloat(lat);
+    const userLng = parseFloat(lng);
+    
+    // Find nearby chefs first
+    const nearbyChefs = await Chef.find({
+      isActive: true,
+      location: {
+        $near: {
+          $geometry: { type: 'Point', coordinates: [userLng, userLat] },
+          $maxDistance: parseFloat(radius) * 1000 // meters
+        }
+      }
+    }).select('_id name kitchenName location');
+    
+    const chefIds = nearbyChefs.map(chef => chef._id);
+    
+    // Find top meal boxes from these chefs
+    const mealBoxes = await MealBox.find({
+      chefId: { $in: chefIds },
+      isActive: true
+    })
+    .sort({ 'rating.average': -1, 'popularity.orderCount': -1 })
+    .limit(parseInt(limit))
+    .populate('dishes.menuItem', 'name') // Just get the menu item names
+    .populate('chefId', 'name kitchenName profilePicture'); // Get chef details
+    
+    // Get user favorites if userId is provided
+    let userFavorites = [];
+    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+      try {
+        const user = await User.findById(userId);
+        
+        if (user && user.favoriteMealBoxes && user.favoriteMealBoxes.length > 0) {
+          userFavorites = user.favoriteMealBoxes.map(mealBox => mealBox.toString());
+        }
+      } catch (favError) {
+        console.error("Error fetching user favorite meal boxes:", favError);
+      }
+    }
+    
+    // Calculate distance using Haversine formula
     function haversine(lat1, lon1, lat2, lon2) {
       function toRad(x) { return x * Math.PI / 180; }
       const R = 6371; // km
@@ -354,29 +699,34 @@ exports.getPopularChefs = async (req, res) => {
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     }
-
-    const userLat = parseFloat(lat);
-    const userLng = parseFloat(lng);
-
-    res.status(200).json({ 
-      popularChefs: popularChefs.map(chef => {
-        let distance = null;
-        if (chef.location && chef.location.coordinates) {
-          distance = haversine(userLat, userLng, chef.location.coordinates[1], chef.location.coordinates[0]);
-        }
-        return {
-          chefName: chef.name,
-          kitchenName: chef.kitchenName,
-          bio: chef.bio || null,
-          rating: chef.rating,
-          distance: distance !== null ? Number(distance.toFixed(2)) : null, // in km
-          preparationTime: chef.responseTime || null,
-          isVeg: chef.isVegOnly || false
-        };
-      })
+    
+    // Format response with only the requested fields
+    const formattedMealBoxes = mealBoxes.map(mealBox => {
+      let distance = null;
+      if (mealBox.chefId && mealBox.chefId.location && mealBox.chefId.location.coordinates) {
+        const coords = mealBox.chefId.location.coordinates;
+        distance = haversine(userLat, userLng, coords[1], coords[0]);
+      }
+      
+      return {
+        mealBoxId: mealBox._id,
+        name: mealBox.name,
+        kitchenName: mealBox.chefId ? mealBox.chefId.kitchenName : null,
+        photo: mealBox.photo || "",
+        isVeg: mealBox.isVeg,
+        distance: distance !== null ? Number(distance.toFixed(1)) : null,
+        dishes: mealBox.dishes.map(dish => dish.menuItem.name),
+        rating: {
+          average: mealBox.rating?.average || 0,
+          count: mealBox.rating?.count || 0
+        },
+        isFavorite: userFavorites.includes(mealBox._id.toString())
+      };
     });
+    
+    res.status(200).json({ mealBoxesForYou: formattedMealBoxes });
   } catch (err) {
-    console.error("Get popular chefs error:", err);
-    res.status(500).json({ message: "Failed to fetch popular chefs" });
+    console.error("Get meal boxes for you error:", err);
+    res.status(500).json({ message: "Failed to fetch meal boxes", error: err.message });
   }
 };

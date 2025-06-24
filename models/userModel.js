@@ -94,6 +94,10 @@ const userSchema = new mongoose.Schema({
       type: Date,
       default: Date.now
     }
+  }],
+  favoriteMealBoxes: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MealBox'
   }]
 }, {
   timestamps: true,

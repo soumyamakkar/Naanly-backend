@@ -26,8 +26,12 @@ const menuItemSchema = new mongoose.Schema({
     type: Boolean,
     required: true
   },
-  category: {
-    type: String,
+  category:{
+    type:String,
+    required:true
+  },
+  tags: {
+    type: [String],
     required: true
   },
   // New fields for ingredients, allergens, and oil type

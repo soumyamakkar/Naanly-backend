@@ -60,6 +60,19 @@ const chefCoverStorage = new CloudinaryStorage({
   }
 });
 
+// Configure storage for meal box photos
+const mealBoxPhotoStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'naanly/meal-boxes',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [
+      { width: 800, height: 800, crop: 'limit' },
+      { quality: 'auto' }
+    ]
+  }
+});
+
 module.exports = {
   cloudinary,
   uploadMenuItemPhoto: multer({ 
@@ -77,5 +90,16 @@ module.exports = {
   uploadChefCoverPhoto: multer({ 
     storage: chefCoverStorage,
     limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+  }),
+  uploadMealBoxPhoto: multer({
+    storage: mealBoxPhotoStorage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype === 'image/jpeg' || file.mimetype === 'image/png' || file.mimetype === 'image/jpg') {
+        cb(null, true);
+      } else {
+        cb(new Error('Only JPEG, JPG and PNG file formats are allowed'));
+      }
+    }
   })
 };

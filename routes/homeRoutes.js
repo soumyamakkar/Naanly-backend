@@ -3,13 +3,14 @@ const router = express.Router();
 const homeController = require('../controllers/homeController');
 const { protect } = require('../middlewares/authMiddleware');
 
-// Public routes
-router.get('/today-specials', homeController.getTodaysSpecials);
-router.get('/popular-dishes', homeController.getPopularDishes);
-router.get('/top-kitchens', homeController.getTopHomeKitchens);
-router.get('/popular-chefs', homeController.getPopularChefs);
+// Single endpoint for all menu item queries with filter in query params
+router.get('/menu-items', protect, homeController.getMenuItems);
 
-// Protected route - needs user's preferences
-//router.get('/recommended-chefs', protect, homeController.getRecommendedChefs);
+// Keep the chef/kitchen endpoints separate since they're different entities
+router.get('/top-kitchens', protect, homeController.getTopHomeKitchens);
+router.get('/popular-chefs', protect, homeController.getPopularChefs);
+
+// Add the meal boxes endpoint
+router.get('/meal-boxes-for-you', protect, homeController.getMealBoxesForYou);
 
 module.exports = router;
