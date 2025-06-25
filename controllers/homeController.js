@@ -810,13 +810,19 @@ exports.getMenuItemDetails = async (req, res) => {
         average: dish.rating?.average || 0,
         count: dish.rating?.count || 0
       },
+      deliveryTime: distance,
       distance: distance,
-      preparationTime: dish.preparationTime || 30
+      preparationTime: dish.preparationTime || 30,
+      // For backward compatibility
+      mainPhoto: dish.photos?.main || "",
+      // Full photo data
+        additionalPhotos: dish.photos?.additional || []
     }));
     
     // Get pairing suggestions - first check if explicitly defined in model
     let pairingSuggestions = [];
     
+    // For explicitly defined pairing suggestions
     if (menuItem.pairingSuggestions && menuItem.pairingSuggestions.length > 0) {
       // Use explicitly defined pairing suggestions
       pairingSuggestions = menuItem.pairingSuggestions.map(item => ({
@@ -824,10 +830,25 @@ exports.getMenuItemDetails = async (req, res) => {
         name: item.name,
         category: item.category,
         isVeg: item.isVeg,
-        photo: item.photo || ""
+        price: item.price, // Add price field
+        photos: {
+          main: item.photos?.main || "",
+          additional: item.photos?.additional || []
+        }
       }));
+      
+      // If we don't have at least 4 suggestions, repeat items to fill
+      if (pairingSuggestions.length < 4 && pairingSuggestions.length > 0) {
+        const originalSuggestions = [...pairingSuggestions];
+        while (pairingSuggestions.length < 4) {
+          // Add items from the beginning until we have 4
+          for (let i = 0; i < originalSuggestions.length && pairingSuggestions.length < 4; i++) {
+            pairingSuggestions.push({...originalSuggestions[i]});
+          }
+        }
+      }
     } 
-    // If not enough explicit suggestions, try to generate some
+    // If no explicit suggestions, try to generate some algorithmically
     else if (menuItem.tags && menuItem.tags.length > 0) {
       // Define complementary categories based on the current item
       let complementaryCategories = [];
@@ -845,13 +866,14 @@ exports.getMenuItemDetails = async (req, res) => {
       }
       
       // Find items from the same kitchen with complementary categories
+      // Update query to include price in selection
       const suggestedItems = await MenuItem.find({
         ...query,
         category: { $in: complementaryCategories }
       })
       .sort({ 'rating.average': -1 })
       .limit(3)
-      .select('_id name category isVeg photo')
+      .select('_id name category isVeg photos price') // Added price field
       .lean();
       
       // If we don't have enough items, try finding items with similar tags
@@ -863,7 +885,7 @@ exports.getMenuItemDetails = async (req, res) => {
         })
         .sort({ 'rating.average': -1 })
         .limit(3 - suggestedItems.length)
-        .select('_id name category isVeg photo')
+        .select('_id name category isVeg photos price') // Added price field
         .lean();
         
         pairingSuggestions = [...suggestedItems, ...additionalItems].map(item => ({
@@ -871,7 +893,11 @@ exports.getMenuItemDetails = async (req, res) => {
           name: item.name,
           category: item.category,
           isVeg: item.isVeg,
-          photo: item.photo || ""
+          price: item.price, // Add price field
+          photos: {
+            main: item.photos?.main || "",
+            additional: item.photos?.additional || []
+          }
         }));
       } else {
         pairingSuggestions = suggestedItems.map(item => ({
@@ -879,9 +905,46 @@ exports.getMenuItemDetails = async (req, res) => {
           name: item.name,
           category: item.category,
           isVeg: item.isVeg,
-          photo: item.photo || ""
+          price: item.price, // Add price field
+          photos: {
+            main: item.photos?.main || "",
+            additional: item.photos?.additional || []
+          }
         }));
       }
+      
+      // If we still don't have enough items, repeat what we have to get at least 4
+      if (pairingSuggestions.length < 4 && pairingSuggestions.length > 0) {
+        const originalSuggestions = [...pairingSuggestions];
+        while (pairingSuggestions.length < 4) {
+          for (let i = 0; i < originalSuggestions.length && pairingSuggestions.length < 4; i++) {
+            pairingSuggestions.push({...originalSuggestions[i]});
+          }
+        }
+      }
+    }
+    
+    // If we somehow end up with no pairing suggestions at all, create dummy ones based on the current item
+    if (pairingSuggestions.length === 0) {
+      const dummySuggestion = {
+        itemId: menuItem._id, // Use the current item's ID
+        name: "Try with " + menuItem.name,
+        category: menuItem.category,
+        isVeg: menuItem.isVeg,
+        price: menuItem.price, // Include price
+        photos: {
+          main: menuItem.photos?.main || "",
+          additional: menuItem.photos?.additional || []
+        }
+      };
+      
+      // Create 4 copies of the dummy suggestion
+      pairingSuggestions = [
+        {...dummySuggestion},
+        {...dummySuggestion},
+        {...dummySuggestion},
+        {...dummySuggestion}
+      ];
     }
     
     // Determine if the item is "Highly Popular" using internal logic
@@ -914,7 +977,11 @@ exports.getMenuItemDetails = async (req, res) => {
         oilType: menuItem.oilType || "Not specified",
         pairingSuggestions: pairingSuggestions,
         isHighlyPopular: isHighlyPopular,
-        distance: distance // Added distance to kitchen
+        distance: distance, // Added distance to kitchen,
+        photos: {
+          main: menuItem.photos?.main || "",
+          additional: menuItem.photos?.additional || []
+        }
       },
       preparedBy: {
         name: sourceType === 'restaurant' ? source.name : source.kitchenName,

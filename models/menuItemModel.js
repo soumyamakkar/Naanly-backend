@@ -136,10 +136,13 @@ const menuItemSchema = new mongoose.Schema({
       default: null
     }
   },
-  photo: {
-    type: String,  // URL to the photo
+  photos: {
+  main: {
+    type: String,  // URL to the main photo
     default: ""
   },
+  additional: [String]  // Array of additional photo URLs
+},
   // Rating information
   rating: {
     average: {
