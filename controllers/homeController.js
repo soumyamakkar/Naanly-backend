@@ -934,6 +934,131 @@ exports.getMenuItemDetails = async (req, res) => {
   }
 };
 
+// Get Chef Details
+exports.getChefDetails = async (req, res) => {
+  try {
+    const { chefId } = req.params;
+    const userId = req.user?.id;
+    
+    if (!mongoose.Types.ObjectId.isValid(chefId)) {
+      return res.status(400).json({ message: "Invalid chef ID" });
+    }
+    
+    // Fetch chef with all necessary fields
+    const chef = await Chef.findById(chefId)
+      .select('name kitchenName bio profilePicture coverPhoto rating totalRatings isVegOnly eatingPreference combos availability sales')
+      .populate('combos.items.menuItemId', 'name photo price isVeg');
+    
+    if (!chef) {
+      return res.status(404).json({ message: "Chef not found" });
+    }
+
+    // Check if user has favorited this chef
+    let isFavorite = false;
+    if (userId) {
+      const user = await User.findById(userId).select('favoriteChefs');
+      if (user && user.favoriteChefs) {
+        isFavorite = user.favoriteChefs.some(favChef => favChef.toString() === chefId);
+      }
+    }
+    
+    // Check if chef is currently available (based on current day and time)
+    const isCurrentlyAvailable = isChefAvailableNow(chef.availability);
+    
+    // Determine if the chef is "Highly Popular" using internal logic
+    // Criteria: 
+    // 1. Rating at least 4.3
+    // 2. At least 20 total ratings
+    // 3. At least 100 total orders OR revenue > 50,000
+    const isHighlyPopular = (
+      (chef.rating >= 4.3) && 
+      (chef.totalRatings >= 20) && 
+      (chef.sales?.totalOrders >= 100 || chef.sales?.totalRevenue >= 50000)
+    );
+    
+    // Determine vegetarian status based on eatingPreference
+    const isVegetarian = chef.isVegOnly || ['pure-veg-only', 'veg-from-anywhere'].includes(chef.eatingPreference);
+    
+    // Format combo cards
+    const comboCards = chef.combos
+      .filter(combo => combo.isActive)
+      .map(combo => ({
+        id: combo._id,
+        name: combo.name,
+        price: combo.price,
+        description: combo.description,
+        isVeg: combo.isVeg,
+        photo: combo.photo || ""
+      }));
+      
+    // Format the response
+    const response = {
+      chefDetails: {
+        chefId: chef._id,
+        name: chef.name,
+        kitchenName: chef.kitchenName,
+        description: chef.bio,
+        profilePhoto: chef.profilePicture || "",
+        coverPhoto: chef.coverPhoto || "",
+        isCurrentlyAvailable,
+        isHighlyPopular,
+        isVegetarian,
+        rating: {
+          average: chef.rating || 0,
+          count: chef.totalRatings || 0
+        },
+        isFavorite
+      },
+      combos: comboCards
+    };
+    
+    res.status(200).json(response);
+  } catch (err) {
+    console.error("Get chef details error:", err);
+    res.status(500).json({ message: "Failed to fetch chef details" });
+  }
+};
+
+// Helper function to check if chef is currently available
+function isChefAvailableNow(availability) {
+  if (!availability) return false;
+  
+  const now = new Date();
+  const dayMap = {
+    0: 'sunday',
+    1: 'monday',
+    2: 'tuesday',
+    3: 'wednesday',
+    4: 'thursday',
+    5: 'friday',
+    6: 'saturday'
+  };
+  
+  const currentDay = dayMap[now.getDay()];
+  const currentTime = now.getHours() * 60 + now.getMinutes(); // Convert current time to minutes
+  
+  const todayAvailability = availability[currentDay];
+  
+  if (!todayAvailability || !todayAvailability.available) {
+    return false;
+  }
+  
+  // Check if current time falls within any of the available hours
+  return todayAvailability.hours.some(timeRange => {
+    const [start, end] = timeRange.split('-');
+    
+    if (!start || !end) return false;
+    
+    const [startHour, startMinute] = start.trim().split(':').map(Number);
+    const [endHour, endMinute] = end.trim().split(':').map(Number);
+    
+    const startTimeMinutes = startHour * 60 + startMinute;
+    const endTimeMinutes = endHour * 60 + endMinute;
+    
+    return currentTime >= startTimeMinutes && currentTime <= endTimeMinutes;
+  });
+}
+
 // Helper function to calculate distance using Haversine formula
 function calculateDistance(lat1, lon1, lat2, lon2) {
   function toRad(x) { return x * Math.PI / 180; }

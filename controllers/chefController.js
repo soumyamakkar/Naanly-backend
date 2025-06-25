@@ -377,3 +377,201 @@ exports.getChefMealBoxes = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch meal boxes", error: err.message });
   }
 };
+
+// Add a combo to chef's menu
+exports.addCombo = async (req, res) => {
+  try {
+    const { id: chefId } = req.params;
+    
+    // Check if chef exists
+    const chef = await Chef.findById(chefId);
+    if (!chef) {
+      return res.status(404).json({ message: "Chef not found" });
+    }
+    
+    // Parse the request body
+    let comboData = { ...req.body };
+    
+    // Handle nested JSON objects if they're sent as strings
+    if (comboData.items && typeof comboData.items === 'string') {
+      try { comboData.items = JSON.parse(comboData.items); } catch {}
+    }
+    
+    // If a photo was uploaded
+    if (req.file && req.file.path) {
+      comboData.photo = req.file.path;
+    }
+    
+    // Validate that all menu items exist and belong to this chef
+    if (comboData.items && Array.isArray(comboData.items)) {
+      const menuItemIds = comboData.items.map(item => item.menuItemId);
+      const menuItems = await MenuItem.find({
+        _id: { $in: menuItemIds },
+        chefId
+      });
+      
+      if (menuItems.length !== menuItemIds.length) {
+        return res.status(400).json({ 
+          message: "One or more menu items don't exist or don't belong to this chef"
+        });
+      }
+      
+      // Determine if the combo is vegetarian based on the menu items
+      const allVeg = menuItems.every(item => item.isVeg === true);
+      comboData.isVeg = allVeg;
+    }
+    
+    // Add combo to chef
+    chef.combos.push(comboData);
+    await chef.save();
+    
+    // Get the newly added combo
+    const newCombo = chef.combos[chef.combos.length - 1];
+    
+    res.status(201).json({
+      message: "Combo added successfully",
+      combo: {
+        id: newCombo._id,
+        name: newCombo.name,
+        price: newCombo.price,
+        isVeg: newCombo.isVeg,
+        photo: newCombo.photo || "",
+        items: newCombo.items
+      }
+    });
+  } catch (err) {
+    console.error("Error adding combo:", err);
+    res.status(500).json({ message: "Failed to add combo", error: err.message });
+  }
+};
+
+// Get all combos for a chef
+exports.getCombos = async (req, res) => {
+  try {
+    const { id: chefId } = req.params;
+    
+    const chef = await Chef.findById(chefId)
+      .select('combos')
+      .populate('combos.items.menuItemId', 'name photo price isVeg');
+    
+    if (!chef) {
+      return res.status(404).json({ message: "Chef not found" });
+    }
+    
+    // Filter active combos and format response
+    const combos = chef.combos
+      .filter(combo => combo.isActive)
+      .map(combo => ({
+        id: combo._id,
+        name: combo.name,
+        description: combo.description,
+        price: combo.price,
+        isVeg: combo.isVeg,
+        photo: combo.photo || "",
+        items: combo.items.map(item => ({
+          menuItemId: item.menuItemId._id,
+          name: item.menuItemId.name,
+          quantity: item.quantity,
+          price: item.menuItemId.price,
+          isVeg: item.menuItemId.isVeg,
+          photo: item.menuItemId.photo || ""
+        }))
+      }));
+    
+    res.status(200).json({ combos });
+  } catch (err) {
+    console.error("Error fetching combos:", err);
+    res.status(500).json({ message: "Failed to fetch combos", error: err.message });
+  }
+};
+
+// Update a combo
+exports.updateCombo = async (req, res) => {
+  try {
+    const { id: chefId, comboId } = req.params;
+    const updateData = { ...req.body };
+    
+    // If a photo was uploaded
+    if (req.file && req.file.path) {
+      updateData.photo = req.file.path;
+    }
+    
+    // Handle nested JSON objects if they're sent as strings
+    if (updateData.items && typeof updateData.items === 'string') {
+      try { updateData.items = JSON.parse(updateData.items); } catch {}
+    }
+    
+    // Find the chef
+    const chef = await Chef.findById(chefId);
+    if (!chef) {
+      return res.status(404).json({ message: "Chef not found" });
+    }
+    
+    // Find combo index
+    const comboIndex = chef.combos.findIndex(combo => combo._id.toString() === comboId);
+    if (comboIndex === -1) {
+      return res.status(404).json({ message: "Combo not found" });
+    }
+    
+    // Update combo fields
+    Object.keys(updateData).forEach(key => {
+      if (key !== 'items') { // Handle items separately
+        chef.combos[comboIndex][key] = updateData[key];
+      }
+    });
+    
+    // Update items if provided
+    if (updateData.items && Array.isArray(updateData.items)) {
+      // Validate items
+      const menuItemIds = updateData.items.map(item => item.menuItemId);
+      const menuItems = await MenuItem.find({
+        _id: { $in: menuItemIds },
+        chefId
+      });
+      
+      if (menuItems.length !== menuItemIds.length) {
+        return res.status(400).json({ 
+          message: "One or more menu items don't exist or don't belong to this chef"
+        });
+      }
+      
+      // Update items
+      chef.combos[comboIndex].items = updateData.items;
+      
+      // Update vegetarian status based on items
+      const allVeg = menuItems.every(item => item.isVeg === true);
+      chef.combos[comboIndex].isVeg = allVeg;
+    }
+    
+    await chef.save();
+    
+    res.status(200).json({
+      message: "Combo updated successfully",
+      combo: chef.combos[comboIndex]
+    });
+  } catch (err) {
+    console.error("Error updating combo:", err);
+    res.status(500).json({ message: "Failed to update combo", error: err.message });
+  }
+};
+
+// Delete a combo (soft delete by setting isActive to false)
+exports.deleteCombo = async (req, res) => {
+  try {
+    const { id: chefId, comboId } = req.params;
+    
+    const result = await Chef.updateOne(
+      { _id: chefId, "combos._id": comboId },
+      { $set: { "combos.$.isActive": false } }
+    );
+    
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Chef or combo not found" });
+    }
+    
+    res.status(200).json({ message: "Combo deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting combo:", err);
+    res.status(500).json({ message: "Failed to delete combo", error: err.message });
+  }
+};

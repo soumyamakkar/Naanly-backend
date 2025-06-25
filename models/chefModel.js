@@ -208,7 +208,48 @@ const chefSchema = new mongoose.Schema({
       type: Number,
       default: 25 // in km
     }
-  }
+  },
+  combos: [{
+    name: {
+      type: String,
+      required: true
+    },
+    description: {
+      type: String,
+      //required: true
+    },
+    price: {
+      type: Number,
+      required: true
+    },
+    items: [{
+      menuItemId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'MenuItem',
+        required: true
+      },
+      quantity: {
+        type: Number,
+        default: 1
+      }
+    }],
+    isVeg: {
+      type: Boolean,
+      default: true
+    },
+    photo: {
+      type: String,
+      default: ""
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }]
 }, {
   timestamps: true,
   // This ensures that MongoDB's ObjectId is always generated

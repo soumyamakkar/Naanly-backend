@@ -12,5 +12,7 @@ router.get('/popular-chefs', protect, homeController.getPopularChefs);
 router.get('/menu-item/:itemId', protect, homeController.getMenuItemDetails);
 // Add the meal boxes endpoint
 router.get('/meal-boxes-for-you', protect, homeController.getMealBoxesForYou);
+// Add this route to the existing routes in the file
+router.get('/chef/:chefId', protect, homeController.getChefDetails);
 
 module.exports = router;
