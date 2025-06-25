@@ -9,7 +9,7 @@ router.get('/popular-dishes', protect, homeController.getPopularDishes);
 // Keep the chef/kitchen endpoints separate since they're different entities
 router.get('/top-kitchens', protect, homeController.getTopHomeKitchens);
 router.get('/popular-chefs', protect, homeController.getPopularChefs);
-
+router.get('/menu-item/:itemId', protect, homeController.getMenuItemDetails);
 // Add the meal boxes endpoint
 router.get('/meal-boxes-for-you', protect, homeController.getMealBoxesForYou);
 

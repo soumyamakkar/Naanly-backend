@@ -150,7 +150,11 @@ const menuItemSchema = new mongoose.Schema({
       type: Number,
       default: 0
     }
-  }
+  },
+  pairingSuggestions: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MenuItem'
+  }]
 }, {
   timestamps: true
 });

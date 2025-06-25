@@ -730,3 +730,219 @@ exports.getMealBoxesForYou = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch meal boxes", error: err.message });
   }
 };
+
+// Get detailed menu item information for home page
+exports.getMenuItemDetails = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { itemId } = req.params;
+    const { lat, lng } = req.query; // For calculating distance to kitchen
+    
+    if (!mongoose.Types.ObjectId.isValid(itemId)) {
+      return res.status(400).json({ message: "Invalid menu item ID" });
+    }
+    
+    // Fetch the menu item with all necessary populated fields
+    const menuItem = await MenuItem.findById(itemId)
+      .populate('restaurantId', 'name location rating coverPhoto')
+      .populate('chefId', 'name kitchenName location rating profilePicture coverPhoto')
+      .populate('pairingSuggestions');
+    
+    if (!menuItem) {
+      return res.status(404).json({ message: "Menu item not found" });
+    }
+    
+    // Determine source (restaurant or chef)
+    const sourceType = menuItem.restaurantId ? 'restaurant' : 'chef';
+    const source = menuItem.restaurantId || menuItem.chefId;
+    
+    // Check if user has favorited this item
+    let isFavorite = false;
+    if (userId) {
+      const user = await User.findById(userId).select('favorites');
+      if (user && user.favorites) {
+        isFavorite = user.favorites.some(fav => fav.menuItem && fav.menuItem.toString() === itemId);
+      }
+    }
+    
+    // Calculate distance if coordinates provided
+    let distance = null;
+    if (lat && lng && source && source.location && source.location.coordinates) {
+      distance = calculateDistance(
+        parseFloat(lat), 
+        parseFloat(lng), 
+        source.location.coordinates[1], 
+        source.location.coordinates[0]
+      );
+    }
+    
+    // Get more dishes from the same kitchen (top 5)
+    let moreDishes = [];
+    const query = sourceType === 'restaurant' 
+      ? { restaurantId: source._id, _id: { $ne: itemId } }
+      : { chefId: source._id, _id: { $ne: itemId } };
+    
+    moreDishes = await MenuItem.find(query)
+      .sort({ 'rating.average': -1 })
+      .limit(5)
+      .lean();
+    
+    // Check if these dishes are favorited
+    if (userId && moreDishes.length > 0) {
+      const user = await User.findById(userId).select('favorites');
+      if (user && user.favorites) {
+        const favoritedItems = user.favorites.map(fav => fav.menuItem && fav.menuItem.toString());
+        moreDishes = moreDishes.map(dish => ({
+          ...dish,
+          isFavorite: favoritedItems.includes(dish._id.toString())
+        }));
+      }
+    }
+    
+    // Format more dishes
+    const formattedMoreDishes = moreDishes.map(dish => ({
+      itemId: dish._id,
+      name: dish.name,
+      kitchenName: sourceType === 'restaurant' ? source.name : source.kitchenName,
+      isVeg: dish.isVeg,
+      isFavorite: dish.isFavorite || false,
+      rating: {
+        average: dish.rating?.average || 0,
+        count: dish.rating?.count || 0
+      },
+      distance: distance,
+      preparationTime: dish.preparationTime || 30
+    }));
+    
+    // Get pairing suggestions - first check if explicitly defined in model
+    let pairingSuggestions = [];
+    
+    if (menuItem.pairingSuggestions && menuItem.pairingSuggestions.length > 0) {
+      // Use explicitly defined pairing suggestions
+      pairingSuggestions = menuItem.pairingSuggestions.map(item => ({
+        itemId: item._id,
+        name: item.name,
+        category: item.category,
+        isVeg: item.isVeg,
+        photo: item.photo || ""
+      }));
+    } 
+    // If not enough explicit suggestions, try to generate some
+    else if (menuItem.tags && menuItem.tags.length > 0) {
+      // Define complementary categories based on the current item
+      let complementaryCategories = [];
+      
+      if (menuItem.category === 'Main Course') {
+        complementaryCategories = ['Sides', 'Rice', 'Bread', 'Dessert', 'Beverages'];
+      } else if (menuItem.category === 'Appetizer') {
+        complementaryCategories = ['Main Course', 'Beverages'];
+      } else if (menuItem.category === 'Beverages') {
+        complementaryCategories = ['Snacks', 'Dessert', 'Appetizer'];
+      } else if (menuItem.category === 'Dessert') {
+        complementaryCategories = ['Beverages', 'Main Course'];
+      } else {
+        complementaryCategories = ['Main Course', 'Beverages', 'Dessert'];
+      }
+      
+      // Find items from the same kitchen with complementary categories
+      const suggestedItems = await MenuItem.find({
+        ...query,
+        category: { $in: complementaryCategories }
+      })
+      .sort({ 'rating.average': -1 })
+      .limit(3)
+      .select('_id name category isVeg photo')
+      .lean();
+      
+      // If we don't have enough items, try finding items with similar tags
+      if (suggestedItems.length < 3) {
+        const additionalItems = await MenuItem.find({
+          ...query,
+          tags: { $in: menuItem.tags },
+          _id: { $nin: suggestedItems.map(item => item._id) }
+        })
+        .sort({ 'rating.average': -1 })
+        .limit(3 - suggestedItems.length)
+        .select('_id name category isVeg photo')
+        .lean();
+        
+        pairingSuggestions = [...suggestedItems, ...additionalItems].map(item => ({
+          itemId: item._id,
+          name: item.name,
+          category: item.category,
+          isVeg: item.isVeg,
+          photo: item.photo || ""
+        }));
+      } else {
+        pairingSuggestions = suggestedItems.map(item => ({
+          itemId: item._id,
+          name: item.name,
+          category: item.category,
+          isVeg: item.isVeg,
+          photo: item.photo || ""
+        }));
+      }
+    }
+    
+    // Determine if the item is "Highly Popular" using internal logic
+    // Criteria: 
+    // 1. At least 10 ratings
+    // 2. Average rating at least 4.2
+    // 3. Been ordered at least 50 times OR top 10% of ordered items
+    const isHighlyPopular = (
+      (menuItem.rating?.count >= 10) && 
+      (menuItem.rating?.average >= 4.2) && 
+      (menuItem.popularity?.orderCount >= 50)
+    );
+    
+    // Format the final response
+    const response = {
+      itemDetails: {
+        name: menuItem.name,
+        madeBy: sourceType === 'restaurant' ? source.name : source.kitchenName,
+        price: menuItem.price,
+        isVeg: menuItem.isVeg,
+        isFavorite: isFavorite,
+        preparationTime: menuItem.preparationTime || 30,
+        rating: {
+          average: menuItem.rating?.average || 0,
+          count: menuItem.rating?.count || 0
+        },
+        description: menuItem.description || "",
+        keyIngredients: menuItem.keyIngredients || [],
+        allergens: menuItem.allergens || [],
+        oilType: menuItem.oilType || "Not specified",
+        pairingSuggestions: pairingSuggestions,
+        isHighlyPopular: isHighlyPopular,
+        distance: distance // Added distance to kitchen
+      },
+      preparedBy: {
+        name: sourceType === 'restaurant' ? source.name : source.kitchenName,
+        chefName: sourceType === 'chef' ? source.name : null,
+        profilePicture: sourceType === 'chef' ? source.profilePicture : null,
+        coverPhoto: sourceType === 'chef' ? source.coverPhoto : 
+                   (sourceType === 'restaurant' ? source.coverPhoto : null), // Added cover photo
+        rating: source.rating || 0
+      },
+      moreDishes: formattedMoreDishes
+    };
+    
+    res.status(200).json(response);
+  } catch (err) {
+    console.error("Get menu item details error:", err);
+    res.status(500).json({ message: "Failed to fetch menu item details" });
+  }
+};
+
+// Helper function to calculate distance using Haversine formula
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  function toRad(x) { return x * Math.PI / 180; }
+  const R = 6371; // km
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Number((R * c).toFixed(1)); // Distance in km rounded to 1 decimal
+}

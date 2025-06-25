@@ -241,17 +241,59 @@ exports.getCartById = async (req, res) => {
   const { cartId } = req.params;
 
   try {
+    // Find cart and populate necessary fields
     const cart = await Cart.findOne({ 
       _id: cartId, 
       user: userId 
-    }).populate('restaurant', 'name isVegOnly')
-      .populate('items.menuItem');
+    })
+    .populate('items.menuItem', 'name price isVeg')
+    .populate('restaurant', 'name')
+    .populate('chef', 'kitchenName');
     
     if (!cart) {
       return res.status(404).json({ message: "Cart not found" });
     }
 
-    res.status(200).json({ cart });
+    // Format items with only requested fields
+    const formattedItems = cart.items.map(item => {
+      return {
+        itemName: item.menuItem.name,
+        // Get kitchen name from either restaurant or chef
+        kitchenName: cart.restaurant ? cart.restaurant.name : 
+                    (cart.chef ? cart.chef.kitchenName : "Unknown Kitchen"),
+        quantity: item.quantity,
+        price: item.price,
+        customizations: item.customizations || {},
+        isVeg: item.menuItem.isVeg
+      }
+    });
+
+    // Calculate bill details
+    const subtotal = cart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const deliveryFee = cart.deliveryFee || 40; // Default delivery fee
+    const promoDiscount = cart.promoDiscount || 0;
+    const tax = Math.round(subtotal * 0.05); // 5% tax
+    const otherFees = cart.otherFees || 10; // Platform fee or packaging
+    const total = subtotal + deliveryFee + tax + otherFees - promoDiscount;
+
+    const response = {
+      cartId: cart._id,
+      items: formattedItems,
+      billDetails: {
+        subtotal,
+        deliveryFee,
+        promoCode: {
+          applied: cart.promoCode ? true : false,
+          code: cart.promoCode || null,
+          discount: promoDiscount
+        },
+        tax,
+        otherFees,
+        total
+      }
+    };
+
+    res.status(200).json(response);
   } catch (err) {
     console.error("Get cart error:", err);
     res.status(500).json({ message: "Failed to fetch cart" });
@@ -263,9 +305,9 @@ exports.updateCartItem = async (req, res) => {
   const userId = req.user.id;
   const { cartId, menuItemId, quantity, customizations } = req.body;
 
-  if (!cartId || !menuItemId || !quantity) {
+  if (!cartId || !menuItemId || (!quantity && !customizations)) {
     return res.status(400).json({ 
-      message: "Cart ID, menu item ID, and quantity are required" 
+      message: "Cart ID, menu item ID, and either of qty and customizations are required" 
     });
   }
 
