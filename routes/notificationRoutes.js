@@ -8,7 +8,8 @@ const {
   markAllAsRead,
   deleteNotification,
   getNotificationCount,
-  createNotification
+  createNotification,
+  deleteAllNotifications
 } = require('../controllers/notificationController');
 
 const router = express.Router();
@@ -28,6 +29,7 @@ router.put('/read-all', markAllAsRead);
 
 // Delete notification
 router.delete('/delete/:notificationId', deleteNotification);
+router.delete('/clear-all', protect, deleteAllNotifications);
 
 //admin api, wil be deleted from here
 router.post('/send',createNotification);

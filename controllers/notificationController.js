@@ -180,6 +180,24 @@ exports.deleteNotification = async (req, res) => {
   }
 };
 
+// Delete all notifications for a user
+exports.deleteAllNotifications = async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    // Delete all notifications for the user
+    const result = await Notification.deleteMany({ user: userId });
+
+    res.status(200).json({ 
+      message: "All notifications deleted successfully", 
+      count: result.deletedCount 
+    });
+  } catch (err) {
+    console.error("Delete all notifications error:", err);
+    res.status(500).json({ message: "Failed to delete notifications" });
+  }
+};
+
 // Get notification count (just the numbers)
 exports.getNotificationCount = async (req, res) => {
   const userId = req.user.id;
